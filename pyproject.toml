@@ -1,0 +1,23 @@
+[project]
+name = "frank-sherlock"
+version = "0.1.0"
+description = "AI-powered media cataloging research using local, open-source tools"
+readme = "docs/IDEA.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Phase 1: Metadata
+    "Pillow>=10.0",
+    # Phase 2: Image classification
+    "requests>=2.31",
+    "onnxruntime-gpu>=1.17",
+    "numpy>=1.24",
+    "huggingface-hub>=0.20",
+    "pandas>=2.0",
+    # Phase 3: Audio
+    "openai-whisper>=20231117",
+    # Phase 5: Catalog
+    "rich>=13.0",
+]
+
+[tool.uv]
+dev-dependencies = []
