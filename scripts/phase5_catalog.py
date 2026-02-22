@@ -42,7 +42,8 @@ def run_ocr(filepath: Path) -> dict | None:
         rec = RecognitionPredictor()
         preds = rec([image], [["en"]], det)
         if preds and preds[0].text_lines:
-            lines = [l.text for l in preds[0].text_lines if l.confidence >= 0.5]
+            lines = [l.text for l in preds[0].text_lines
+                     if (l.confidence if l.confidence is not None else 1.0) >= 0.5]
             if lines:
                 return {"engine": "surya", "text": "\n".join(lines), "line_count": len(lines)}
     except ImportError:

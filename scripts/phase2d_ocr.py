@@ -83,22 +83,33 @@ def run_paddleocr(filepath: Path, langs: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Surya OCR engine
+# Surya OCR engine (models cached at module level to avoid reloading per image)
 # ---------------------------------------------------------------------------
-def run_surya(filepath: Path, langs: list[str]) -> dict:
-    """Run Surya OCR on a single image."""
-    from PIL import Image
-    from surya.recognition import RecognitionPredictor
-    from surya.detection import DetectionPredictor
+_surya_det = None
+_surya_rec = None
 
-    # Surya uses ISO language codes: 'en', 'ja', 'pt', 'zh', etc.
+
+def _get_surya_predictors():
+    global _surya_det, _surya_rec
+    if _surya_det is None:
+        from surya.detection import DetectionPredictor
+        _surya_det = DetectionPredictor()
+    if _surya_rec is None:
+        from surya.recognition import RecognitionPredictor
+        _surya_rec = RecognitionPredictor()
+    return _surya_det, _surya_rec
+
+
+def run_surya(filepath: Path, langs: list[str]) -> dict:
+    """Run Surya OCR on a single image (surya-ocr 0.12.x class-based API)."""
+    from PIL import Image
+
     if not langs:
         langs = ["en"]
 
     image = Image.open(filepath).convert("RGB")
 
-    det_predictor = DetectionPredictor()
-    rec_predictor = RecognitionPredictor()
+    det_predictor, rec_predictor = _get_surya_predictors()
 
     predictions = rec_predictor([image], [langs], det_predictor)
 
@@ -106,11 +117,12 @@ def run_surya(filepath: Path, langs: list[str]) -> dict:
     if predictions and len(predictions) > 0:
         page = predictions[0]
         for line in page.text_lines:
-            if line.confidence >= MIN_CONFIDENCE:
+            conf = line.confidence if line.confidence is not None else 1.0
+            if conf >= MIN_CONFIDENCE:
                 lines.append({
                     "text": line.text,
-                    "confidence": round(float(line.confidence), 4),
-                    "bbox": line.bbox,
+                    "confidence": round(float(conf), 4),
+                    "bbox": line.bbox if hasattr(line, "bbox") else [],
                 })
 
     full_text = "\n".join(l["text"] for l in lines)

@@ -10,15 +10,15 @@ dependencies = [
     # Phase 2: Image classification
     "requests>=2.31",
     "onnxruntime-gpu>=1.17",
-    "numpy>=1.24",
+    "numpy>=1.24,<2",
     "huggingface-hub>=0.20",
     "pandas>=2.0",
     # Phase 3: Audio
     "openai-whisper>=20231117",
     # Phase 2d: OCR
-    "paddleocr>=3.0",
-    "paddlepaddle-gpu>=3.0",
-    "surya-ocr>=0.9",
+    "surya-ocr==0.12.1",
+    "transformers>=4.40,<4.49",
+    "opencv-python-headless>=4.11",
     # Phase 5: Catalog
     "rich>=13.0",
 ]
