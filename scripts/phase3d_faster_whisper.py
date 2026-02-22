@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 3b: Speech-to-text / audio transcription using local Whisper on GPU."""
+"""Phase 3d: Speech-to-text / audio transcription using faster-whisper."""
 
 import argparse
 import sys
@@ -7,19 +7,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from lib.common import (
-    TimedOperation, collect_test_files, relative_path,
-    run_command, save_result, RESULTS_DIR, load_benchmark_config,
+    TimedOperation,
+    collect_test_files,
+    load_benchmark_config,
+    relative_path,
+    run_command,
+    save_result,
+    RESULTS_DIR,
 )
 
 OUTPUT_DIR = RESULTS_DIR / "phase3_audio"
-DEFAULT_WHISPER_MODELS = load_benchmark_config().get("whisper_models", ["base", "small"])
-# For Goldfinger: extract only first 60s + a segment from ~30min in
+DEFAULT_MODELS = load_benchmark_config().get("faster_whisper_models", ["small", "distil-large-v3"])
 GOLDFINGER_SEGMENTS = [
     {"name": "first_60s", "start": 0, "duration": 60},
     {"name": "mid_60s", "start": 1800, "duration": 60},
 ]
 MODEL_CACHE = {}
-WHISPER_DEVICE = None
+ASR_DEVICE = None
+ASR_COMPUTE_TYPE = None
 
 
 def extract_audio_segment(video_path: Path, output_path: Path,
@@ -36,42 +41,71 @@ def extract_audio_segment(video_path: Path, output_path: Path,
     return result["returncode"] == 0
 
 
-def get_whisper_model(model_name: str):
-    """Load a Whisper model once and cache it."""
-    global WHISPER_DEVICE
-    if WHISPER_DEVICE is None:
-        try:
-            import torch
-            WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-        except Exception:
-            WHISPER_DEVICE = "cpu"
-    if model_name not in MODEL_CACHE:
-        import whisper
-        MODEL_CACHE[model_name] = whisper.load_model(model_name, device=WHISPER_DEVICE)
+def detect_runtime() -> tuple[str, str]:
+    """Pick device and compute type for faster-whisper."""
+    global ASR_DEVICE, ASR_COMPUTE_TYPE
+    if ASR_DEVICE is not None and ASR_COMPUTE_TYPE is not None:
+        return ASR_DEVICE, ASR_COMPUTE_TYPE
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            ASR_DEVICE = "cuda"
+            ASR_COMPUTE_TYPE = "float16"
+        else:
+            ASR_DEVICE = "cpu"
+            ASR_COMPUTE_TYPE = "int8"
+    except Exception:
+        ASR_DEVICE = "cpu"
+        ASR_COMPUTE_TYPE = "int8"
+    return ASR_DEVICE, ASR_COMPUTE_TYPE
+
+
+def get_model(model_name: str):
+    """Load a faster-whisper model once and cache it."""
+    if model_name in MODEL_CACHE:
+        return MODEL_CACHE[model_name]
+
+    from faster_whisper import WhisperModel
+
+    device, compute_type = detect_runtime()
+    MODEL_CACHE[model_name] = WhisperModel(
+        model_name,
+        device=device,
+        compute_type=compute_type,
+    )
     return MODEL_CACHE[model_name]
 
 
-def transcribe_with_whisper(audio_path: Path, model_name: str) -> dict:
-    """Transcribe audio using local Whisper model on GPU."""
-    model = get_whisper_model(model_name)
-    use_fp16 = WHISPER_DEVICE == "cuda"
-    result = model.transcribe(
+def transcribe_with_faster_whisper(audio_path: Path, model_name: str) -> dict:
+    """Transcribe audio with faster-whisper."""
+    model = get_model(model_name)
+    segments, info = model.transcribe(
         str(audio_path),
-        fp16=use_fp16,
-        language=None,  # auto-detect
+        beam_size=1,
+        vad_filter=False,
     )
+    rows = []
+    full_text_parts = []
+    for i, seg in enumerate(segments):
+        if i < 20:
+            rows.append({
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+            })
+        full_text_parts.append(seg.text)
+
     return {
-        "text": result.get("text", ""),
-        "language": result.get("language", "unknown"),
-        "segments": [
-            {"start": s["start"], "end": s["end"], "text": s["text"]}
-            for s in result.get("segments", [])[:20]  # limit segments
-        ],
+        "text": "".join(full_text_parts).strip(),
+        "language": getattr(info, "language", "unknown"),
+        "language_probability": round(float(getattr(info, "language_probability", 0.0) or 0.0), 4),
+        "segments": rows,
     }
 
 
-def process_audio(filepath: Path, whisper_models: list[str]) -> dict:
-    """Process a single audio file with all Whisper models."""
+def process_audio(filepath: Path, model_names: list[str]) -> dict:
+    """Process a single audio file with all configured faster-whisper models."""
     rel = relative_path(filepath)
     print(f"\n--- {rel} ---")
 
@@ -80,7 +114,6 @@ def process_audio(filepath: Path, whisper_models: list[str]) -> dict:
 
     entry = {"file": rel, "filename": filepath.name, "models": {}, "timing": {}}
 
-    # Prepare audio (convert to wav if needed)
     temp_dir = OUTPUT_DIR / "temp_whisper"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -95,21 +128,21 @@ def process_audio(filepath: Path, whisper_models: list[str]) -> dict:
             if not ok:
                 return {"file": rel, "filename": filepath.name, "error": "audio conversion failed", "timing": entry["timing"]}
 
-    for model_name in whisper_models:
-        with TimedOperation(f"whisper-{model_name}/{filepath.name}") as t:
+    for model_name in model_names:
+        with TimedOperation(f"faster-whisper-{model_name}/{filepath.name}") as t:
             try:
-                result = transcribe_with_whisper(audio_path, model_name)
-                result["elapsed_s"] = round(t.elapsed, 4)
-                entry["models"][model_name] = result
+                out = transcribe_with_faster_whisper(audio_path, model_name)
+                out["elapsed_s"] = round(t.elapsed, 4)
+                entry["models"][model_name] = out
             except Exception as e:
                 entry["models"][model_name] = {"error": str(e)}
-        entry["timing"][f"whisper_{model_name}_s"] = round(t.elapsed, 4)
+        entry["timing"][f"faster_whisper_{model_name}_s"] = round(t.elapsed, 4)
 
     entry["timing"]["total_s"] = round(sum(entry["timing"].values()), 4)
     return entry
 
 
-def process_long_video(video_path: Path, whisper_models: list[str]) -> dict:
+def process_long_video(video_path: Path, model_names: list[str]) -> dict:
     """Process a long video by extracting specific segments."""
     rel = relative_path(video_path)
     print(f"\n--- {rel} (long video — segments only) ---")
@@ -120,7 +153,7 @@ def process_long_video(video_path: Path, whisper_models: list[str]) -> dict:
     entry = {"file": rel, "filename": video_path.name, "segments": {}, "timing": {}}
 
     for seg in GOLDFINGER_SEGMENTS:
-        seg_path = temp_dir / f"{video_path.stem}_{seg['name']}.wav"
+        seg_path = temp_dir / f"{video_path.stem}_{seg['name']}_fw.wav"
         with TimedOperation(f"extract/{seg['name']}") as t:
             ok = extract_audio_segment(video_path, seg_path, seg["start"], seg["duration"])
         entry["timing"][f"extract_{seg['name']}_s"] = round(t.elapsed, 4)
@@ -129,16 +162,16 @@ def process_long_video(video_path: Path, whisper_models: list[str]) -> dict:
             continue
 
         segment_results = {"models": {}, "timing": {}}
-        for model_name in whisper_models:
-            with TimedOperation(f"whisper-{model_name}/{seg['name']}") as t:
+        for model_name in model_names:
+            with TimedOperation(f"faster-whisper-{model_name}/{seg['name']}") as t:
                 try:
-                    result = transcribe_with_whisper(seg_path, model_name)
-                    result["elapsed_s"] = round(t.elapsed, 4)
-                    segment_results["models"][model_name] = result
+                    out = transcribe_with_faster_whisper(seg_path, model_name)
+                    out["elapsed_s"] = round(t.elapsed, 4)
+                    segment_results["models"][model_name] = out
                 except Exception as e:
                     segment_results["models"][model_name] = {"error": str(e)}
-            segment_results["timing"][f"whisper_{model_name}_s"] = round(t.elapsed, 4)
-            entry["timing"][f"whisper_{model_name}_{seg['name']}_s"] = round(t.elapsed, 4)
+            segment_results["timing"][f"faster_whisper_{model_name}_s"] = round(t.elapsed, 4)
+            entry["timing"][f"faster_whisper_{model_name}_{seg['name']}_s"] = round(t.elapsed, 4)
         entry["segments"][seg["name"]] = segment_results
 
     entry["timing"]["total_s"] = round(sum(entry["timing"].values()), 4)
@@ -146,11 +179,11 @@ def process_long_video(video_path: Path, whisper_models: list[str]) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Phase 3b Whisper benchmark")
+    parser = argparse.ArgumentParser(description="Phase 3d faster-whisper benchmark")
     parser.add_argument(
         "--models",
-        default=",".join(DEFAULT_WHISPER_MODELS),
-        help="Comma-separated Whisper model names",
+        default=",".join(DEFAULT_MODELS),
+        help="Comma-separated faster-whisper model names",
     )
     parser.add_argument(
         "--max-audio",
@@ -165,38 +198,43 @@ def main():
         help="Optional cap on video files (0 = all)",
     )
     args = parser.parse_args()
-    whisper_models = [m.strip() for m in args.models.split(",") if m.strip()]
+    model_names = [m.strip() for m in args.models.split(",") if m.strip()]
 
     print("=" * 60)
-    print("Phase 3b: Whisper Audio Transcription")
+    print("Phase 3d: faster-whisper Audio Transcription")
     print("=" * 60)
+
+    try:
+        import faster_whisper  # noqa: F401
+    except Exception as e:
+        print(f"[ERROR] faster-whisper is not installed or failed to import: {e}")
+        return
 
     valid_models = []
-    for model_name in whisper_models:
+    for model_name in model_names:
         try:
             with TimedOperation(f"load_model/{model_name}"):
-                get_whisper_model(model_name)
+                get_model(model_name)
             valid_models.append(model_name)
         except Exception as e:
             print(f"  [WARN] Skipping model {model_name}: {e}")
-    whisper_models = valid_models
-    if not whisper_models:
-        print("No Whisper models available to benchmark.")
+    model_names = valid_models
+    if not model_names:
+        print("No faster-whisper models available to benchmark.")
         return
+
+    device, compute_type = detect_runtime()
+    print(f"Runtime: device={device}, compute_type={compute_type}")
 
     results = []
 
-    # Process audio files
     audio_files = collect_test_files("audio")
     if args.max_audio > 0:
         audio_files = audio_files[:args.max_audio]
-    print(f"\nProcessing {len(audio_files)} audio files with models: {whisper_models}\n")
-
+    print(f"\nProcessing {len(audio_files)} audio files with models: {model_names}\n")
     for filepath in audio_files:
-        entry = process_audio(filepath, whisper_models)
-        results.append(entry)
+        results.append(process_audio(filepath, model_names))
 
-    # Process video files
     video_files = collect_test_files("video")
     playable_videos = [v for v in video_files if v.stat().st_size > 0]
     if args.max_video > 0:
@@ -208,16 +246,15 @@ def main():
 
     for video in playable_videos:
         if str(goldfinger_dir) in str(video):
-            entry = process_long_video(video, whisper_models)
+            entry = process_long_video(video, model_names)
         else:
-            # Short video — extract first 60s only
             temp_dir = OUTPUT_DIR / "temp_whisper"
             temp_dir.mkdir(parents=True, exist_ok=True)
-            temp_wav = temp_dir / f"{video.stem}_audio.wav"
+            temp_wav = temp_dir / f"{video.stem}_audio_fw.wav"
             with TimedOperation(f"extract/{video.name}") as t_extract:
                 ok = extract_audio_segment(video, temp_wav, duration=60)
             if ok and temp_wav.exists():
-                entry = process_audio(temp_wav, whisper_models)
+                entry = process_audio(temp_wav, model_names)
                 entry["source_video"] = relative_path(video)
                 entry["timing"]["audio_extract_s"] = round(t_extract.elapsed, 4)
             else:
@@ -229,19 +266,18 @@ def main():
                 }
         results.append(entry)
 
-    # Timing summary
     timing_by_model = {}
     for r in results:
         for key, val in r.get("timing", {}).items():
             if key == "total_s":
                 continue
-            # Normalize key to just the model name
-            for m in whisper_models:
-                if f"whisper_{m}" in key:
-                    timing_by_model.setdefault(f"whisper_{m}", []).append(val)
+            for model_name in model_names:
+                if f"faster_whisper_{model_name}" in key:
+                    timing_by_model.setdefault(f"faster_whisper_{model_name}", []).append(val)
                     break
             else:
                 timing_by_model.setdefault(key, []).append(val)
+
     timing_summary = {
         "total_files": len(results),
         "per_tool_avg_s": {k: round(sum(v) / len(v), 4) for k, v in timing_by_model.items()},
@@ -251,28 +287,15 @@ def main():
     }
 
     output = {
-        "phase": "3b_whisper",
-        "models": whisper_models,
+        "phase": "3d_faster_whisper",
+        "models": model_names,
+        "device": device,
+        "compute_type": compute_type,
         "total_files": len(results),
         "timing_summary": timing_summary,
         "results": results,
     }
-    save_result(output, OUTPUT_DIR / "whisper_results.json")
-
-    print(f"\n{'=' * 60}")
-    ok = sum(1 for r in results if not r.get("error"))
-    print(f"Phase 3b Complete: {len(results)} files, {ok} successfully transcribed")
-    langs = set()
-    for r in results:
-        for model_data in r.get("models", {}).values():
-            if isinstance(model_data, dict) and "language" in model_data:
-                langs.add(model_data["language"])
-        for seg_data in r.get("segments", {}).values():
-            for model_data in seg_data.get("models", {}).values():
-                if isinstance(model_data, dict) and "language" in model_data:
-                    langs.add(model_data["language"])
-    print(f"Languages detected: {langs}")
-    print("=" * 60)
+    save_result(output, OUTPUT_DIR / "faster_whisper_results.json")
 
 
 if __name__ == "__main__":

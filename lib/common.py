@@ -1,8 +1,10 @@
 """Shared utilities for Frank Sherlock media cataloging."""
 
 import json
+import math
 import mimetypes
 import os
+import statistics
 import subprocess
 import time
 from pathlib import Path
@@ -10,6 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 TEST_FILES = PROJECT_ROOT / "test_files"
 RESULTS_DIR = PROJECT_ROOT / "results"
+DOCS_DIR = PROJECT_ROOT / "docs"
 
 
 def detect_media_type(filepath: str | Path) -> str:
@@ -95,6 +98,18 @@ def save_result(data: dict | list, output_path: str | Path):
     print(f"  Saved: {output_path}")
 
 
+def load_json(path: str | Path, default=None):
+    """Load JSON file and return default if file is missing or invalid."""
+    path = Path(path)
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return default
+    except json.JSONDecodeError:
+        return default
+
+
 def run_command(cmd: list[str], timeout: int = 300) -> dict:
     """Run an external command and return stdout/stderr/returncode."""
     try:
@@ -131,3 +146,127 @@ def relative_path(filepath: Path) -> str:
         return str(filepath.relative_to(PROJECT_ROOT))
     except ValueError:
         return str(filepath)
+
+
+def extract_first_json_object(text: str) -> dict | None:
+    """Extract first valid JSON object from free-form model text."""
+    if not text:
+        return None
+
+    # Fast path: full JSON object
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
+    # Balanced-brace scan, then parse each candidate
+    starts = [i for i, ch in enumerate(text) if ch == "{"]
+    for start in starts:
+        depth = 0
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+    return None
+
+
+def load_benchmark_config() -> dict:
+    """Load benchmark configuration from docs with sane defaults."""
+    defaults = {
+        "vision_models": ["qwen2.5vl:7b", "llava:13b", "qwen2.5vl:3b", "minicpm-v:8b"],
+        "wd_tagger_models": [
+            "SmilingWolf/wd-swinv2-tagger-v3",
+            "SmilingWolf/wd-vit-tagger-v3",
+            "SmilingWolf/wd-vit-large-tagger-v3",
+        ],
+        "whisper_models": ["base", "small", "medium"],
+        "faster_whisper_models": ["small", "distil-large-v3"],
+    }
+    cfg = load_json(DOCS_DIR / "BENCHMARK_CONFIG.json", default={}) or {}
+    merged = defaults.copy()
+    for key, value in cfg.items():
+        merged[key] = value
+    return merged
+
+
+def normalize_text(text: str) -> str:
+    """Normalize text for rough OCR/ASR comparisons."""
+    return " ".join((text or "").strip().lower().split())
+
+
+def levenshtein_distance(a: str, b: str) -> int:
+    """Compute Levenshtein edit distance with O(min(a,b)) memory."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+
+    if len(a) < len(b):
+        a, b = b, a
+
+    previous = list(range(len(b) + 1))
+    for i, ch_a in enumerate(a, start=1):
+        current = [i]
+        for j, ch_b in enumerate(b, start=1):
+            insert_cost = current[j - 1] + 1
+            delete_cost = previous[j] + 1
+            replace_cost = previous[j - 1] + (ch_a != ch_b)
+            current.append(min(insert_cost, delete_cost, replace_cost))
+        previous = current
+    return previous[-1]
+
+
+def similarity_ratio(a: str, b: str) -> float:
+    """Return normalized similarity in [0, 1] based on edit distance."""
+    a_norm = normalize_text(a)
+    b_norm = normalize_text(b)
+    if not a_norm and not b_norm:
+        return 1.0
+    max_len = max(len(a_norm), len(b_norm), 1)
+    return round(1.0 - (levenshtein_distance(a_norm, b_norm) / max_len), 4)
+
+
+def summarize_samples(samples: list[float]) -> dict:
+    """Summarize repeated-trial values with mean/std/95% CI."""
+    values = [float(x) for x in samples if x is not None]
+    if not values:
+        return {
+            "n": 0,
+            "mean": 0.0,
+            "stddev": 0.0,
+            "ci95_low": 0.0,
+            "ci95_high": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+        }
+
+    n = len(values)
+    mean = statistics.fmean(values)
+    if n > 1:
+        stddev = statistics.stdev(values)
+        margin = 1.96 * stddev / math.sqrt(n)
+    else:
+        stddev = 0.0
+        margin = 0.0
+
+    return {
+        "n": n,
+        "mean": round(mean, 4),
+        "stddev": round(stddev, 4),
+        "ci95_low": round(mean - margin, 4),
+        "ci95_high": round(mean + margin, 4),
+        "min": round(min(values), 4),
+        "max": round(max(values), 4),
+    }

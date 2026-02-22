@@ -1,182 +1,185 @@
 #!/usr/bin/env python3
-"""Phase 2c: Compare Ollama Vision vs WD Tagger results side-by-side."""
+"""Phase 2c: Compare vision and tagging results with ground-truth labels."""
 
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from lib.common import save_result, RESULTS_DIR
+from lib.common import (
+    DOCS_DIR,
+    RESULTS_DIR,
+    extract_first_json_object,
+    load_json,
+    save_result,
+)
 
 OUTPUT_DIR = RESULTS_DIR / "phase2_images"
+GROUND_TRUTH_PATH = DOCS_DIR / "ground_truth_images.json"
 
 
-def load_json(path: Path) -> dict | None:
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print(f"  [WARN] Not found: {path}")
-        return None
+def normalize_series(value: str | None) -> str:
+    return (value or "").strip().lower()
 
 
-def extract_ollama_summary(entry: dict) -> dict:
-    """Extract key info from an Ollama vision result entry."""
-    summary = {"descriptions": {}, "classifications": {}}
-    for model, prompts in entry.get("models", {}).items():
-        desc = prompts.get("describe", {}).get("response", "")
-        summary["descriptions"][model] = desc[:300]
+def normalize_file_key(path_value: str) -> str:
+    path_value = (path_value or "").strip()
+    if path_value.startswith("test_files/"):
+        return path_value[len("test_files/"):]
+    return path_value
 
-        classify_raw = prompts.get("classify", {}).get("response", "")
-        try:
-            # Try to parse JSON from response
-            import re
-            json_match = re.search(r'\{[^}]+\}', classify_raw, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                summary["classifications"][model] = parsed
+
+def evaluate_ollama(ollama_data: dict, ground_truth: dict) -> dict:
+    by_model = {}
+    for entry in ollama_data.get("results", []):
+        file_key = normalize_file_key(entry.get("file", ""))
+        truth = ground_truth.get(file_key)
+        if not truth:
+            continue
+
+        for model_name, prompts in entry.get("models", {}).items():
+            stats = by_model.setdefault(model_name, {
+                "files_with_labels": 0,
+                "json_valid": 0,
+                "type_correct": 0,
+                "series_correct": 0,
+                "series_files": 0,
+                "errors": 0,
+            })
+            stats["files_with_labels"] += 1
+
+            classify_raw = prompts.get("classify", {}).get("response", "")
+            parsed = extract_first_json_object(classify_raw)
+            if parsed:
+                stats["json_valid"] += 1
+                pred_type = (parsed.get("type") or "").strip().lower()
+                true_type = (truth.get("type") or "").strip().lower()
+                if pred_type == true_type:
+                    stats["type_correct"] += 1
+
+                if truth.get("anime_series") is not None:
+                    stats["series_files"] += 1
+                    pred_series = normalize_series(parsed.get("anime_series"))
+                    true_series = normalize_series(truth.get("anime_series"))
+                    if pred_series == true_series:
+                        stats["series_correct"] += 1
             else:
-                summary["classifications"][model] = classify_raw[:200]
-        except (json.JSONDecodeError, AttributeError):
-            summary["classifications"][model] = classify_raw[:200]
+                stats["errors"] += 1
 
-        anime = prompts.get("anime_check", {}).get("response", "")
-        summary[f"anime_check_{model}"] = anime[:200]
-
+    summary = {}
+    for model_name, stats in by_model.items():
+        labeled = max(stats["files_with_labels"], 1)
+        series_files = max(stats["series_files"], 1)
+        summary[model_name] = {
+            **stats,
+            "json_valid_rate": round(stats["json_valid"] / labeled, 4),
+            "type_accuracy": round(stats["type_correct"] / labeled, 4),
+            "series_accuracy": round(stats["series_correct"] / series_files, 4),
+        }
     return summary
 
 
-def extract_wd_summary(entry: dict) -> dict:
-    """Extract key info from a WD Tagger result entry."""
-    return {
-        "top_tags": entry.get("top_general", []),
-        "characters": entry.get("top_characters", []),
-        "rating": entry.get("rating", []),
-        "error": entry.get("error"),
-    }
+def evaluate_wd(wd_data: dict, ground_truth: dict) -> dict:
+    model_stats = {}
+    anime_positive_types = {"anime", "manga"}
+    anime_cues = {"anime", "manga", "retro_artstyle"}
 
+    for entry in wd_data.get("results", []):
+        file_key = normalize_file_key(entry.get("file", ""))
+        truth = ground_truth.get(file_key)
+        if not truth:
+            continue
+        truth_is_anime = (truth.get("type") or "").lower() in anime_positive_types
 
-def score_identification(filename: str, ollama_entry: dict, wd_entry: dict) -> dict:
-    """Score how well each tool identified the content based on filename hints."""
-    filename_lower = filename.lower()
-    scores = {"filename": filename, "ollama_score": 0, "wd_score": 0, "notes": []}
+        for model_name, model_out in entry.get("models", {}).items():
+            if "error" in model_out:
+                continue
+            stats = model_stats.setdefault(model_name, {
+                "files_with_labels": 0,
+                "tp": 0,
+                "tn": 0,
+                "fp": 0,
+                "fn": 0,
+            })
+            stats["files_with_labels"] += 1
 
-    # Known series from filenames
-    series_hints = {
-        "bastard": "Bastard!!", "gallf": "Gall Force", "gallforce": "Gall Force",
-        "lodoss": "Record of Lodoss War", "miyukichan": "Miyuki-chan in Wonderland",
-        "relena": "Gundam Wing", "treize": "Gundam Wing", "treune": "Gundam Wing",
-        "ev_": "Evangelion", "megmpa": "Megami Paradise",
-        "clamp": "CLAMP", "cd_": "anime CD artwork",
-        "screenshot": "desktop screenshot",
-        "capa": "anime cover", "cast": "anime cast",
-        "sample": "anime sample", "insert": "CD insert",
-        "elf_lite": "Elf/anime", "mp_": "anime",
-    }
+            top_tags = set(model_out.get("top_general", []))
+            predicted_anime = any(cue in top_tags for cue in anime_cues)
 
-    detected_series = None
-    for hint, series in series_hints.items():
-        if hint in filename_lower:
-            detected_series = series
-            break
+            if truth_is_anime and predicted_anime:
+                stats["tp"] += 1
+            elif truth_is_anime and not predicted_anime:
+                stats["fn"] += 1
+            elif not truth_is_anime and predicted_anime:
+                stats["fp"] += 1
+            else:
+                stats["tn"] += 1
 
-    if detected_series:
-        # Check if Ollama mentions it
-        ollama_text = json.dumps(ollama_entry).lower() if ollama_entry else ""
-        wd_text = json.dumps(wd_entry).lower() if wd_entry else ""
-
-        series_lower = detected_series.lower()
-        if series_lower in ollama_text:
-            scores["ollama_score"] = 1
-            scores["notes"].append(f"Ollama identified '{detected_series}'")
-
-        # WD Tagger uses booru tags, check for related tags
-        wd_tags_text = " ".join(wd_entry.get("top_tags", [])) if wd_entry else ""
-        if any(word in wd_tags_text for word in series_lower.split()):
-            scores["wd_score"] = 1
-            scores["notes"].append(f"WD Tagger tagged '{detected_series}'")
-
-        scores["expected_series"] = detected_series
-
-    return scores
+    summary = {}
+    for model_name, stats in model_stats.items():
+        total = max(stats["files_with_labels"], 1)
+        tp = stats["tp"]
+        fp = stats["fp"]
+        fn = stats["fn"]
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        summary[model_name] = {
+            **stats,
+            "anime_detection_accuracy": round((stats["tp"] + stats["tn"]) / total, 4),
+            "anime_detection_precision": round(precision, 4),
+            "anime_detection_recall": round(recall, 4),
+        }
+    return summary
 
 
 def main():
     print("=" * 60)
-    print("Phase 2c: Image Classification Comparison")
+    print("Phase 2c: Image Benchmark Comparison")
     print("=" * 60)
 
-    ollama_data = load_json(OUTPUT_DIR / "ollama_vision_results.json")
-    wd_data = load_json(OUTPUT_DIR / "wd_tagger_results.json")
+    ollama_data = load_json(OUTPUT_DIR / "ollama_vision_results.json", default={}) or {}
+    wd_data = load_json(OUTPUT_DIR / "wd_tagger_results.json", default={}) or {}
+    ground_truth = load_json(GROUND_TRUTH_PATH, default={}) or {}
 
-    if not ollama_data or not wd_data:
-        print("Missing data files — run phase2a and phase2b first.")
+    if not ollama_data:
+        print("Missing Ollama result file — run phase2a first.")
+        return
+    if not wd_data:
+        print("Missing WD result file — run phase2b first.")
+        return
+    if not ground_truth:
+        print(f"Missing ground-truth labels: {GROUND_TRUTH_PATH}")
         return
 
-    ollama_by_file = {r["filename"]: r for r in ollama_data.get("results", [])}
-    wd_by_file = {r["filename"]: r for r in wd_data.get("results", [])}
-
-    all_files = sorted(set(list(ollama_by_file.keys()) + list(wd_by_file.keys())))
-    comparisons = []
-    identification_scores = []
-
-    for filename in all_files:
-        ollama_entry = ollama_by_file.get(filename)
-        wd_entry = wd_by_file.get(filename)
-
-        comp = {
-            "filename": filename,
-            "ollama": extract_ollama_summary(ollama_entry) if ollama_entry else None,
-            "wd_tagger": extract_wd_summary(wd_entry) if wd_entry else None,
-        }
-        comparisons.append(comp)
-
-        score = score_identification(filename, ollama_entry, wd_entry)
-        identification_scores.append(score)
-
-    # Summary stats
-    ollama_wins = sum(1 for s in identification_scores if s["ollama_score"] > s["wd_score"])
-    wd_wins = sum(1 for s in identification_scores if s["wd_score"] > s["ollama_score"])
-    ties = sum(1 for s in identification_scores if s["ollama_score"] == s["wd_score"])
-
-    # Timing comparison from source data
-    ollama_timing = ollama_data.get("timing_summary", {})
-    wd_timing = wd_data.get("timing_summary", {})
-
-    summary = {
-        "total_images": len(all_files),
-        "ollama_wins": ollama_wins,
-        "wd_wins": wd_wins,
-        "ties": ties,
-        "note": "Wins based on series identification from filename hints",
-        "timing_comparison": {
-            "ollama_per_image_avg_s": ollama_timing.get("per_image_avg_s", "N/A"),
-            "ollama_phase_total_s": ollama_timing.get("phase_total_s", "N/A"),
-            "wd_tagger_per_image_avg_s": wd_timing.get("per_image_avg_s", "N/A"),
-            "wd_tagger_phase_total_s": wd_timing.get("phase_total_s", "N/A"),
-        },
-    }
+    ollama_eval = evaluate_ollama(ollama_data, ground_truth)
+    wd_eval = evaluate_wd(wd_data, ground_truth)
 
     output = {
         "phase": "2c_comparison",
-        "summary": summary,
-        "identification_scores": identification_scores,
-        "comparisons": comparisons,
+        "ground_truth_file": str(GROUND_TRUTH_PATH),
+        "ground_truth_items": len(ground_truth),
+        "ollama_eval": ollama_eval,
+        "wd_eval": wd_eval,
+        "timing_comparison": {
+            "ollama": ollama_data.get("timing_summary", {}),
+            "wd": wd_data.get("timing_summary", {}),
+        },
     }
     save_result(output, OUTPUT_DIR / "comparison_report.json")
 
-    # Print readable summary
-    print(f"\n{'=' * 60}")
-    print(f"  Summary: Ollama wins={ollama_wins}, WD wins={wd_wins}, Ties={ties}")
-    print(f"{'=' * 60}")
-    print("\nPer-image highlights:")
-    for score in identification_scores:
-        if score.get("expected_series"):
-            winner = "Ollama" if score["ollama_score"] > score["wd_score"] else \
-                     "WD" if score["wd_score"] > score["ollama_score"] else "Tie"
-            notes = "; ".join(score["notes"]) if score["notes"] else "neither identified"
-            print(f"  {score['filename']}: expected='{score['expected_series']}' → {winner} ({notes})")
-    print("=" * 60)
+    print("\nOllama model ranking (type accuracy):")
+    for model_name, stats in sorted(ollama_eval.items(), key=lambda i: i[1]["type_accuracy"], reverse=True):
+        print(
+            f"  {model_name}: type_acc={stats['type_accuracy']:.3f}, "
+            f"series_acc={stats['series_accuracy']:.3f}, json_valid={stats['json_valid_rate']:.3f}"
+        )
+
+    print("\nWD model ranking (anime detection accuracy):")
+    for model_name, stats in sorted(wd_eval.items(), key=lambda i: i[1]["anime_detection_accuracy"], reverse=True):
+        print(
+            f"  {model_name}: acc={stats['anime_detection_accuracy']:.3f}, "
+            f"precision={stats['anime_detection_precision']:.3f}, recall={stats['anime_detection_recall']:.3f}"
+        )
 
 
 if __name__ == "__main__":

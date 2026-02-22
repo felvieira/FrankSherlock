@@ -1,0 +1,25 @@
+{
+  "vision_models": [
+    "qwen3-vl:30b-a3b",
+    "qwen2.5vl:32b",
+    "qwen2.5vl:7b",
+    "qwen3-vl:8b",
+    "qwen2.5vl:3b",
+    "llava:13b",
+    "minicpm-v:8b"
+  ],
+  "wd_tagger_models": [
+    "SmilingWolf/wd-swinv2-tagger-v3",
+    "SmilingWolf/wd-vit-tagger-v3",
+    "SmilingWolf/wd-vit-large-tagger-v3"
+  ],
+  "whisper_models": [
+    "base",
+    "small",
+    "medium"
+  ],
+  "faster_whisper_models": [
+    "small",
+    "distil-large-v3"
+  ]
+}

@@ -2,6 +2,7 @@
 """Phase 3a: Audio fingerprinting with Chromaprint/fpcalc + optional AcoustID lookup."""
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from lib.common import (
 )
 
 OUTPUT_DIR = RESULTS_DIR / "phase3_audio"
-ACOUSTID_API_KEY = None  # Set to your API key if you have one
+ACOUSTID_API_KEY = os.getenv("ACOUSTID_API_KEY")
 ACOUSTID_URL = "https://api.acoustid.org/v2/lookup"
 
 
@@ -89,6 +90,11 @@ def main():
     print("=" * 60)
     print("Phase 3a: Chromaprint Audio Fingerprinting")
     print("=" * 60)
+
+    if ACOUSTID_API_KEY:
+        print("AcoustID lookup enabled via ACOUSTID_API_KEY.")
+    else:
+        print("AcoustID lookup disabled (set ACOUSTID_API_KEY to enable matches).")
 
     # Process audio files
     audio_files = collect_test_files("audio")

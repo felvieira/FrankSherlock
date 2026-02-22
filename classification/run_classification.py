@@ -521,6 +521,7 @@ def build_index_text(record: dict) -> str:
     primary = record.get("primary_classification", {})
     lines.append(f"file: {src.get('relative_path', '')}")
     lines.append(f"media_type: {primary.get('media_type', '')}")
+    lines.append(f"confidence_primary: {primary.get('confidence', 0.0)}")
     lines.append(f"description: {primary.get('description', '')}")
     if primary.get("series_candidates"):
         lines.append("series_candidates: " + ", ".join(primary["series_candidates"]))
@@ -529,6 +530,7 @@ def build_index_text(record: dict) -> str:
 
     anime = record.get("anime_details")
     if anime:
+        lines.append(f"confidence_anime: {anime.get('confidence', 0.0)}")
         if anime.get("series"):
             lines.append(f"anime_series: {anime.get('series')}")
         if anime.get("canonical_mentions"):
@@ -539,6 +541,9 @@ def build_index_text(record: dict) -> str:
 
     doc = record.get("document_details")
     if doc:
+        llm_doc = (doc.get("llm_fields") or {})
+        if llm_doc:
+            lines.append(f"confidence_document: {llm_doc.get('confidence', 0.0)}")
         lines.append(f"document_kind: {doc.get('document_kind')}")
         lines.append(f"issuer: {doc.get('issuer')}")
         lines.append(f"counterparty: {doc.get('counterparty')}")

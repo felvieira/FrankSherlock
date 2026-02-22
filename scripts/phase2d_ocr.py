@@ -2,6 +2,7 @@
 """Phase 2d: OCR text extraction — A/B test PaddleOCR vs Surya vs Ollama Vision on screenshots/documents."""
 
 import base64
+import re
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from lib.common import (
     TimedOperation, collect_test_files, relative_path,
-    save_result, RESULTS_DIR,
+    save_result, RESULTS_DIR, run_command, similarity_ratio,
 )
 
 OUTPUT_DIR = RESULTS_DIR / "phase2_images"
@@ -23,7 +24,6 @@ MIN_CONFIDENCE = 0.5
 
 def pdf_to_image(pdf_path: Path) -> Path | None:
     """Convert first page of a PDF to a PNG image for OCR processing."""
-    from lib.common import run_command
     temp_dir = OUTPUT_DIR / "temp_ocr"
     temp_dir.mkdir(parents=True, exist_ok=True)
     out_path = temp_dir / f"{pdf_path.stem}_page1.png"
@@ -209,9 +209,26 @@ def check_ollama() -> bool:
 def guess_languages(filepath: Path) -> list[str]:
     """Guess likely languages from filename or default to English."""
     name = filepath.stem.lower()
-    # Heuristic: if it's a known Japanese/anime context, try Japanese
-    # Default to English for screenshots
-    return ["en"]
+    if any(token in name for token in ["santander", "procuração", "procuracao", "comprovante"]):
+        return ["pt", "en"]
+    if any(token in name for token in ["op", "ed", "gundam", "kenshin", "mononoke", "ev_", "megmpa", "lodoss", "miyuki"]):
+        return ["ja", "en"]
+    if "screenshot" in name:
+        return ["en", "pt"]
+    return ["en", "ja", "pt"]
+
+
+def extract_pdf_text_reference(filepath: Path) -> str:
+    """Extract reference text from PDF text layer when available."""
+    if filepath.suffix.lower() != ".pdf" and filepath.suffix:
+        return ""
+    probe = run_command(["file", "--brief", "--mime-type", str(filepath)], timeout=5)
+    if "pdf" not in probe.get("stdout", ""):
+        return ""
+    text_out = run_command(["pdftotext", "-f", "1", "-l", "1", str(filepath), "-"], timeout=20)
+    if text_out["returncode"] == 0:
+        return text_out.get("stdout", "").strip()
+    return ""
 
 
 def process_image(filepath: Path, engines: dict) -> dict:
@@ -229,7 +246,6 @@ def process_image(filepath: Path, engines: dict) -> dict:
     # Convert PDF to image if needed
     ocr_filepath = filepath
     if filepath.suffix.lower() == ".pdf" or not filepath.suffix:
-        from lib.common import run_command
         # Check if it's actually a PDF
         probe = run_command(["file", "--brief", "--mime-type", str(filepath)], timeout=5)
         if "pdf" in probe.get("stdout", ""):
@@ -243,11 +259,17 @@ def process_image(filepath: Path, engines: dict) -> dict:
                 return entry
 
     langs = guess_languages(filepath)
+    entry["languages_tested"] = langs
+    reference_text = extract_pdf_text_reference(filepath)
+    if reference_text:
+        entry["reference_text"] = reference_text[:5000]
 
     if engines.get("paddleocr"):
         with TimedOperation(f"paddleocr/{filepath.name}") as t:
             try:
-                result = run_paddleocr(ocr_filepath, langs)
+                result = run_paddleocr(ocr_filepath, [langs[0]])
+                if reference_text:
+                    result["reference_similarity"] = similarity_ratio(result.get("full_text", ""), reference_text)
                 entry["engines"]["paddleocr"] = result
             except Exception as e:
                 entry["engines"]["paddleocr"] = {"error": str(e), "full_text": ""}
@@ -258,6 +280,8 @@ def process_image(filepath: Path, engines: dict) -> dict:
         with TimedOperation(f"surya/{filepath.name}") as t:
             try:
                 result = run_surya(ocr_filepath, langs)
+                if reference_text:
+                    result["reference_similarity"] = similarity_ratio(result.get("full_text", ""), reference_text)
                 entry["engines"]["surya"] = result
             except Exception as e:
                 entry["engines"]["surya"] = {"error": str(e), "full_text": ""}
@@ -270,6 +294,8 @@ def process_image(filepath: Path, engines: dict) -> dict:
                 # Ollama can handle PDFs directly as images if converted,
                 # but send the original for vision context
                 result = run_ollama_ocr(ocr_filepath)
+                if reference_text:
+                    result["reference_similarity"] = similarity_ratio(result.get("full_text", ""), reference_text)
                 entry["engines"]["ollama_vision"] = result
             except Exception as e:
                 entry["engines"]["ollama_vision"] = {"error": str(e), "full_text": ""}
@@ -345,16 +371,24 @@ def main():
     # Text extraction comparison
     extraction_summary = {}
     for eng_name in ["paddleocr", "surya", "ollama_vision"]:
-        texts = [
-            r["engines"].get(eng_name, {}).get("full_text", "")
-            for r in results if eng_name in r.get("engines", {})
-        ]
+        texts = []
+        similarities = []
+        for r in results:
+            if eng_name not in r.get("engines", {}):
+                continue
+            eng = r["engines"].get(eng_name, {})
+            texts.append(eng.get("full_text", ""))
+            sim = eng.get("reference_similarity")
+            if isinstance(sim, (int, float)):
+                similarities.append(float(sim))
         if texts:
             extraction_summary[eng_name] = {
                 "images_processed": len(texts),
                 "images_with_text": sum(1 for t in texts if t.strip()),
                 "avg_text_length": round(sum(len(t) for t in texts) / len(texts), 1),
                 "total_chars_extracted": sum(len(t) for t in texts),
+                "avg_reference_similarity": round(sum(similarities) / len(similarities), 4) if similarities else None,
+                "reference_samples": len(similarities),
             }
 
     output = {
