@@ -12,8 +12,8 @@ type Props = {
 
 export default function ScanSummaryModal({ completedJobs, onClose }: Props) {
   return (
-    <ModalOverlay>
-      <div className="modal-base summary-modal">
+    <ModalOverlay onEscape={onClose}>
+      <div className="modal-base summary-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Scan Complete</h2>
         <table className="summary-table">
           <thead>

@@ -442,6 +442,31 @@ fn get_file_metadata(
 }
 
 #[tauri::command]
+fn get_file_properties(
+    file_id: i64,
+    state: State<'_, AppState>,
+) -> Result<models::FileProperties, String> {
+    let mut props =
+        db::get_file_properties(&state.paths.db_file, file_id).map_err(|e| e.to_string())?;
+
+    // Enrich with EXIF data from the actual file
+    let path = std::path::Path::new(&props.abs_path);
+    if path.exists() {
+        props.exif = exif::extract_exif_details(path);
+
+        // Get image dimensions (fast header-only read) if EXIF didn't have them
+        if props.exif.image_width.is_none() || props.exif.image_height.is_none() {
+            if let Ok(dim) = image::image_dimensions(path) {
+                props.exif.image_width = Some(dim.0);
+                props.exif.image_height = Some(dim.1);
+            }
+        }
+    }
+
+    Ok(props)
+}
+
+#[tauri::command]
 fn update_file_metadata(
     file_id: i64,
     media_type: String,
@@ -906,6 +931,7 @@ pub fn run() {
             delete_files,
             rename_file,
             get_file_metadata,
+            get_file_properties,
             update_file_metadata,
             create_album,
             delete_album,

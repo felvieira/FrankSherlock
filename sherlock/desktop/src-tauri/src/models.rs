@@ -266,6 +266,27 @@ pub struct FileMetadata {
     pub location_text: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileProperties {
+    pub id: i64,
+    pub filename: String,
+    pub abs_path: String,
+    pub rel_path: String,
+    pub root_path: String,
+    pub media_type: String,
+    pub description: String,
+    pub extracted_text: String,
+    pub canonical_mentions: String,
+    pub location_text: String,
+    pub confidence: f32,
+    pub size_bytes: i64,
+    pub mtime_ns: i64,
+    pub fingerprint: String,
+    #[serde(flatten)]
+    pub exif: crate::exif::ExifDetails,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExistingFile {
     pub id: i64,

@@ -26,8 +26,8 @@ export default function SetupModal({ setup, onRecheck, onDownload, onSetupOcr, o
     setup.venvProvision.status !== "running";
 
   return (
-    <ModalOverlay>
-      <div className="modal-base setup-modal">
+    <ModalOverlay onEscape={onClose}>
+      <div className="modal-base setup-modal" onClick={(e) => e.stopPropagation()}>
         <h2>First-Time Setup</h2>
         <p>Sherlock needs local Ollama service and required model(s) before scanning.</p>
         <div className="setup-status-grid">

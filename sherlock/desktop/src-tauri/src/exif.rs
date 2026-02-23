@@ -19,6 +19,82 @@ pub struct ExifLocation {
     pub location_text: String,
 }
 
+/// Detailed EXIF metadata for the properties dialog.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExifDetails {
+    pub camera_make: Option<String>,
+    pub camera_model: Option<String>,
+    pub lens_model: Option<String>,
+    pub focal_length: Option<String>,
+    pub aperture: Option<String>,
+    pub exposure_time: Option<String>,
+    pub iso: Option<String>,
+    pub date_taken: Option<String>,
+    pub image_width: Option<u32>,
+    pub image_height: Option<u32>,
+    pub color_space: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub gps_location: Option<String>,
+}
+
+/// Extract detailed EXIF data from a file for the properties dialog.
+pub fn extract_exif_details(path: &Path) -> ExifDetails {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return ExifDetails::default(),
+    };
+    let mut buf_reader = std::io::BufReader::new(file);
+    let exif = match exif::Reader::new().read_from_container(&mut buf_reader) {
+        Ok(e) => e,
+        Err(_) => return ExifDetails::default(),
+    };
+
+    let get_str = |tag: exif::Tag| -> Option<String> {
+        exif.get_field(tag, exif::In::PRIMARY)
+            .map(|f| f.display_value().to_string().trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    let get_u32 = |tag: exif::Tag| -> Option<u32> {
+        exif.get_field(tag, exif::In::PRIMARY).and_then(|f| match &f.value {
+            exif::Value::Long(v) => v.first().copied(),
+            exif::Value::Short(v) => v.first().map(|x| *x as u32),
+            _ => f.display_value().to_string().trim().parse::<u32>().ok(),
+        })
+    };
+
+    // GPS extraction
+    let (latitude, longitude) = extract_gps_coords(path)
+        .map(|(lat, lon)| (Some(lat), Some(lon)))
+        .unwrap_or((None, None));
+    let gps_location = match (latitude, longitude) {
+        (Some(lat), Some(lon)) => {
+            let text = reverse_geocode(lat, lon);
+            if text.is_empty() { None } else { Some(text) }
+        }
+        _ => None,
+    };
+
+    ExifDetails {
+        camera_make: get_str(exif::Tag::Make),
+        camera_model: get_str(exif::Tag::Model),
+        lens_model: get_str(exif::Tag::LensModel),
+        focal_length: get_str(exif::Tag::FocalLength),
+        aperture: get_str(exif::Tag::FNumber),
+        exposure_time: get_str(exif::Tag::ExposureTime),
+        iso: get_str(exif::Tag::PhotographicSensitivity),
+        date_taken: get_str(exif::Tag::DateTimeOriginal),
+        image_width: get_u32(exif::Tag::PixelXDimension),
+        image_height: get_u32(exif::Tag::PixelYDimension),
+        color_space: get_str(exif::Tag::ColorSpace),
+        latitude,
+        longitude,
+        gps_location,
+    }
+}
+
 /// Main entry point: extract GPS coordinates from EXIF and reverse geocode.
 pub fn extract_location(path: &Path) -> ExifLocation {
     let Some((lat, lon)) = extract_gps_coords(path) else {

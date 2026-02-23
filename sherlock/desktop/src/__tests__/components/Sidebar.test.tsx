@@ -19,6 +19,7 @@ const defaultProps = {
   onSelectRoot: vi.fn(),
   onDeleteRoot: vi.fn(),
   onRescanRoot: vi.fn(),
+  onCopyRootPath: vi.fn(),
   onPickAndScan: vi.fn(),
   onCancelScan: vi.fn(),
   onResumeScan: vi.fn(),

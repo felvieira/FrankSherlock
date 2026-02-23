@@ -14,6 +14,7 @@ type Props = {
   onCopyOcrText: () => void;
   onRename: () => void;
   onEditMetadata: () => void;
+  onProperties: () => void;
   onDelete: () => void;
   onAddToAlbum: (albumId: number) => void;
   onCreateAlbumFromSelection: () => void;
@@ -22,8 +23,8 @@ type Props = {
 
 export default function ContextMenu({
   x, y, selectedCount, albums, description, extractedText,
-  onCopyPath, onCopyDescription, onCopyOcrText, onRename, onEditMetadata, onDelete,
-  onAddToAlbum, onCreateAlbumFromSelection, onClose,
+  onCopyPath, onCopyDescription, onCopyOcrText, onRename, onEditMetadata, onProperties,
+  onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -97,6 +98,12 @@ export default function ContextMenu({
       {selectedCount === 1 && (
         <button className="context-menu-item" role="menuitem" onClick={onEditMetadata}>
           <span>Edit Metadata</span>
+        </button>
+      )}
+
+      {selectedCount === 1 && (
+        <button className="context-menu-item" role="menuitem" onClick={onProperties}>
+          <span>Properties</span>
         </button>
       )}
 

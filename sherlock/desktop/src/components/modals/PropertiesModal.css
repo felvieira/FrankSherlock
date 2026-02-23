@@ -1,0 +1,95 @@
+/* ── Properties modal (Finder-style) ──────────────────────── */
+.properties-modal {
+  width: min(480px, 90vw);
+  max-height: min(85vh, 750px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.properties-modal h3 {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.properties-modal h3 .badge {
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+.properties-loading {
+  text-align: center;
+  padding: 20px 0;
+  color: var(--text-secondary);
+}
+
+.properties-error {
+  color: var(--text-error, #e55);
+  font-size: var(--font-size-sm);
+  margin: 0 0 8px;
+}
+
+/* Scrollable body */
+.properties-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Section groups */
+.properties-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.properties-section-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  padding: 0 0 4px;
+  border-bottom: 1px solid var(--border-primary);
+  margin-bottom: 4px;
+}
+
+/* Key-value rows */
+.properties-row {
+  display: flex;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.properties-label {
+  flex: 0 0 110px;
+  color: var(--text-secondary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.properties-value {
+  flex: 1;
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: text;
+}
+
+.properties-value.mono {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+
+/* Close button row */
+.properties-modal .modal-actions {
+  flex-shrink: 0;
+  padding-top: 10px;
+  justify-content: flex-end;
+}

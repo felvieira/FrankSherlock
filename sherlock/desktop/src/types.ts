@@ -166,6 +166,37 @@ export type FileMetadata = {
   locationText: string;
 };
 
+export type FileProperties = {
+  id: number;
+  filename: string;
+  absPath: string;
+  relPath: string;
+  rootPath: string;
+  mediaType: string;
+  description: string;
+  extractedText: string;
+  canonicalMentions: string;
+  locationText: string;
+  confidence: number;
+  sizeBytes: number;
+  mtimeNs: number;
+  fingerprint: string;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  cameraMake?: string | null;
+  cameraModel?: string | null;
+  lensModel?: string | null;
+  focalLength?: string | null;
+  aperture?: string | null;
+  exposureTime?: string | null;
+  iso?: string | null;
+  dateTaken?: string | null;
+  colorSpace?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  gpsLocation?: string | null;
+};
+
 export type Album = {
   id: number;
   name: string;

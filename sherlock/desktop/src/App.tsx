@@ -36,6 +36,7 @@ import ConfirmFileDeleteModal from "./components/modals/ConfirmFileDeleteModal";
 import RenameModal from "./components/modals/RenameModal";
 import HelpModal from "./components/modals/HelpModal";
 import EditMetadataModal from "./components/modals/EditMetadataModal";
+import PropertiesModal from "./components/modals/PropertiesModal";
 import ModelInfoModal from "./components/modals/ModelInfoModal";
 import CreateAlbumModal from "./components/modals/CreateAlbumModal";
 import CreateSmartFolderModal from "./components/modals/CreateSmartFolderModal";
@@ -75,6 +76,7 @@ export default function App() {
   const [renameItem, setRenameItem] = useState<SearchItem | null>(null);
   const [showModelInfo, setShowModelInfo] = useState(false);
   const [editMetadataItem, setEditMetadataItem] = useState<SearchItem | null>(null);
+  const [propertiesItem, setPropertiesItem] = useState<SearchItem | null>(null);
   const [forceShowSetup, setForceShowSetup] = useState(false); // F10 debug toggle
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -224,7 +226,7 @@ export default function App() {
   usePolling(POLL_MS, scanManager.pollRuntimeAndScans, [scanManager.trackedJobIds]);
   useInfiniteScroll(sentinelRef, onLoadMore, [items.length, total, loadingMore]);
 
-  const hasModalOpen = !!(confirmDeleteFiles || renameItem || editMetadataItem || showCreateAlbum || showCreateSmartFolder);
+  const hasModalOpen = !!(confirmDeleteFiles || renameItem || editMetadataItem || propertiesItem || showCreateAlbum || showCreateSmartFolder);
 
   const onRequestDelete = useCallback(() => {
     const filesToDelete = [...selectedIndices].sort((a, b) => a - b)
@@ -410,6 +412,13 @@ export default function App() {
     if (selectedIndices.size !== 1) return;
     const idx = [...selectedIndices][0];
     if (idx < items.length) setEditMetadataItem(items[idx]);
+  }
+
+  function handleContextProperties() {
+    setContextMenu(null);
+    if (selectedIndices.size !== 1) return;
+    const idx = [...selectedIndices][0];
+    if (idx < items.length) setPropertiesItem(items[idx]);
   }
 
   async function handleDeleteFiles() {
@@ -644,6 +653,7 @@ export default function App() {
           onCopyOcrText={handleContextCopyOcrText}
           onRename={handleContextRename}
           onEditMetadata={handleContextEditMetadata}
+          onProperties={handleContextProperties}
           onDelete={handleContextDelete}
           onAddToAlbum={handleAddToAlbum}
           onCreateAlbumFromSelection={handleCreateAlbumFromSelection}
@@ -655,6 +665,12 @@ export default function App() {
           fileId={editMetadataItem.id}
           onSave={handleSaveMetadata}
           onCancel={() => setEditMetadataItem(null)}
+        />
+      )}
+      {propertiesItem && (
+        <PropertiesModal
+          fileId={propertiesItem.id}
+          onClose={() => setPropertiesItem(null)}
         />
       )}
       {showCreateAlbum && (
@@ -702,6 +718,10 @@ export default function App() {
           onSelectRoot={setSelectedRootId}
           onDeleteRoot={(root) => setConfirmDeleteRoot(root)}
           onRescanRoot={(root) => scanManager.onRescanRoot(root, setup, readOnly)}
+          onCopyRootPath={(root) => {
+            copyFilesToClipboard([root.rootPath]).catch(() => {});
+            setNotice(`Copied path: ${root.rootPath}`);
+          }}
           onPickAndScan={() => scanManager.onPickAndScan(setup, readOnly)}
           onCancelScan={(scan) => scanManager.onCancelScan(scan, readOnly)}
           onResumeScan={(scan) => scanManager.onResumeScan(scan, readOnly)}

@@ -5,6 +5,7 @@ import type {
   DbStats,
   DeleteFilesResult,
   FileMetadata,
+  FileProperties,
   HealthStatus,
   PurgeResult,
   RenameFileResult,
@@ -101,6 +102,10 @@ export async function renameFile(fileId: number, newName: string): Promise<Renam
 
 export async function getFileMetadata(fileId: number): Promise<FileMetadata> {
   return invoke<FileMetadata>("get_file_metadata", { fileId });
+}
+
+export async function getFileProperties(fileId: number): Promise<FileProperties> {
+  return invoke<FileProperties>("get_file_properties", { fileId });
 }
 
 export async function updateFileMetadata(

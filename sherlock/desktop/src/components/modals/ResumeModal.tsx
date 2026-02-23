@@ -12,8 +12,8 @@ type Props = {
 
 export default function ResumeModal({ interruptedScans, onDismiss, onResumeAll }: Props) {
   return (
-    <ModalOverlay>
-      <div className="modal-base resume-modal">
+    <ModalOverlay onEscape={onDismiss}>
+      <div className="modal-base resume-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Interrupted Scans</h2>
         <p>The following scans were interrupted and can be resumed:</p>
         <ul className="resume-scan-list">

@@ -16,6 +16,7 @@ const baseProps = {
   onCopyOcrText: vi.fn(),
   onRename: vi.fn(),
   onEditMetadata: vi.fn(),
+  onProperties: vi.fn(),
   onDelete: vi.fn(),
   onAddToAlbum: vi.fn(),
   onCreateAlbumFromSelection: vi.fn(),

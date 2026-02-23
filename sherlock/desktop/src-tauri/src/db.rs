@@ -7,9 +7,9 @@ use rusqlite_migration::{HookError, Migrations, M};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    Album, DbStats, ExistingFile, FileMetadata, FileRecordUpsert, HealthCheckOutcome, ParsedQuery,
-    PurgeResult, RootInfo, ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse,
-    SmartFolder, SortField, SortOrder,
+    Album, DbStats, ExistingFile, FileMetadata, FileProperties, FileRecordUpsert,
+    HealthCheckOutcome, ParsedQuery, PurgeResult, RootInfo, ScanJobState, ScanJobStatus,
+    SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder,
 };
 use crate::query_parser::parse_query;
 
@@ -1168,6 +1168,39 @@ pub fn get_file_metadata(db_path: &Path, file_id: i64) -> AppResult<FileMetadata
                 extracted_text: row.get(3)?,
                 canonical_mentions: row.get(4)?,
                 location_text: row.get(5)?,
+            })
+        },
+    )
+    .map_err(AppError::from)
+}
+
+pub fn get_file_properties(db_path: &Path, file_id: i64) -> AppResult<FileProperties> {
+    let conn = open_conn(db_path)?;
+    conn.query_row(
+        "SELECT f.id, f.filename, f.abs_path, f.rel_path, r.root_path,
+                f.media_type, f.description, f.extracted_text, f.canonical_mentions,
+                f.location_text, f.confidence, f.size_bytes, f.mtime_ns, f.fingerprint
+         FROM files f
+         JOIN roots r ON f.root_id = r.id
+         WHERE f.id = ?1 AND f.deleted_at IS NULL",
+        params![file_id],
+        |row| {
+            Ok(FileProperties {
+                id: row.get(0)?,
+                filename: row.get(1)?,
+                abs_path: row.get(2)?,
+                rel_path: row.get(3)?,
+                root_path: row.get(4)?,
+                media_type: row.get(5)?,
+                description: row.get(6)?,
+                extracted_text: row.get(7)?,
+                canonical_mentions: row.get(8)?,
+                location_text: row.get(9)?,
+                confidence: row.get(10)?,
+                size_bytes: row.get(11)?,
+                mtime_ns: row.get(12)?,
+                fingerprint: row.get(13)?,
+                exif: Default::default(),
             })
         },
     )
