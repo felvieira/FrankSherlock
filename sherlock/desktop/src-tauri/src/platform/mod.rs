@@ -14,6 +14,22 @@ pub enum OsKind {
     Windows,
 }
 
+/// Platform-specific PDFium shared library filename.
+pub fn pdfium_lib_name() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "libpdfium.so"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "libpdfium.dylib"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "pdfium.dll"
+    }
+}
+
 pub fn current_os() -> OsKind {
     #[cfg(target_os = "linux")]
     {
@@ -47,5 +63,14 @@ mod tests {
         let a = current_os();
         let b = a;
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn pdfium_lib_name_has_correct_extension() {
+        let name = pdfium_lib_name();
+        assert!(
+            name.ends_with(".so") || name.ends_with(".dylib") || name.ends_with(".dll"),
+            "unexpected lib name: {name}"
+        );
     }
 }

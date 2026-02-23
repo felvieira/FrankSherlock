@@ -63,7 +63,7 @@ pub fn ollama_generate(
         .into();
 
     let result = agent
-        .post("http://localhost:11434/api/generate")
+        .post(&format!("{}/api/generate", super::OLLAMA_BASE))
         .send_json(&payload);
 
     match result {

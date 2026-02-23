@@ -717,14 +717,7 @@ fn resolve_pdfium_lib(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
     // In production builds, PDFium is bundled as a Tauri resource.
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
         let lib_dir = resource_dir.join("lib");
-        let lib_name = if cfg!(target_os = "linux") {
-            "libpdfium.so"
-        } else if cfg!(target_os = "macos") {
-            "libpdfium.dylib"
-        } else {
-            "pdfium.dll"
-        };
-        let bundled = lib_dir.join(lib_name);
+        let bundled = lib_dir.join(platform::pdfium_lib_name());
         if bundled.exists() {
             return lib_dir;
         }

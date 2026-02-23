@@ -260,8 +260,8 @@ mod tests {
     #[test]
     fn handles_missing_source_gracefully() {
         let thumb_dir = tempfile::tempdir().expect("tempdir");
-        let missing = Path::new("/tmp/nonexistent_image_12345.png");
-        let result = generate_thumbnail(missing, thumb_dir.path(), "missing.png");
+        let missing = std::env::temp_dir().join("nonexistent_image_12345.png");
+        let result = generate_thumbnail(&missing, thumb_dir.path(), "missing.png");
         assert!(result.is_none());
     }
 

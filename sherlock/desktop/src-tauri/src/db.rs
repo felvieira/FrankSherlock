@@ -302,7 +302,7 @@ pub fn adopt_child_files(db_path: &Path, child_root_id: i64, child_root_path: &s
         }
         let sub_prefix = child
             .strip_prefix(parent)
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|p| crate::platform::paths::normalize_rel_path(&p.to_string_lossy()))
             .unwrap_or_default();
         if sub_prefix.is_empty() {
             continue;
@@ -885,7 +885,7 @@ pub fn reassign_to_parent_root(db_path: &Path, child_root_id: i64) -> AppResult<
     // Compute the prefix to prepend when moving files back to parent
     let sub_prefix = child
         .strip_prefix(std::path::Path::new(&parent_path))
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|p| crate::platform::paths::normalize_rel_path(&p.to_string_lossy()))
         .unwrap_or_default();
 
     let tx = conn.unchecked_transaction()?;
@@ -1336,8 +1336,9 @@ fn search_images_normalized(
     }
 
     if let Some(ref dir) = parsed.subdir {
+        let normalized_dir = crate::platform::paths::normalize_rel_path(dir);
         where_clauses.push("f.rel_path LIKE ?".to_string());
-        bind_values.push(Value::Text(format!("{}/%", dir)));
+        bind_values.push(Value::Text(format!("{}/%", normalized_dir)));
     }
 
     let media_types = normalize_media_types(&request.media_types);

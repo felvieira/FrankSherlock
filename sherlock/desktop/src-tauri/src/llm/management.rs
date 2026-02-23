@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::error::AppResult;
 use crate::models::SetupDownloadStatus;
 
-const OLLAMA_BASE: &str = "http://localhost:11434";
+use super::OLLAMA_BASE;
 
 #[derive(Clone, Debug)]
 pub struct DownloadState {
