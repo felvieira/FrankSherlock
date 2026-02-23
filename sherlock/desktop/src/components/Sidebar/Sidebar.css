@@ -2,10 +2,22 @@
 .sidebar {
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-primary);
-  overflow-y: auto;
+  overflow: hidden;
   padding: 0;
   display: flex;
   flex-direction: column;
+}
+
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.sidebar-info-fixed {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border-primary);
+  padding-bottom: 4px;
 }
 
 .sidebar-section {
@@ -90,9 +102,6 @@
   border-color: var(--border-primary);
 }
 
-.sidebar-spacer {
-  flex: 1;
-}
 
 /* ── Root cards ──────────────────────────────────────────── */
 .root-list {

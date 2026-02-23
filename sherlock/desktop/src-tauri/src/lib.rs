@@ -19,8 +19,9 @@ use std::sync::{Arc, Mutex};
 use config::{prepare_dirs, resolve_paths, AppPaths};
 use error::AppError;
 use models::{
-    DeleteFilesResult, HealthCheckOutcome, HealthStatus, PurgeResult, RenameFileResult, RootInfo,
-    RuntimeStatus, ScanJobStatus, SearchRequest, SearchResponse, SetupDownloadStatus, SetupStatus,
+    Album, DeleteFilesResult, HealthCheckOutcome, HealthStatus, PurgeResult, RenameFileResult,
+    RootInfo, RuntimeStatus, ScanJobStatus, SearchRequest, SearchResponse, SetupDownloadStatus,
+    SetupStatus, SmartFolder,
 };
 use tauri::Manager;
 use tauri::State;
@@ -378,6 +379,69 @@ fn update_file_metadata(
     .map_err(|e| e.to_string())
 }
 
+// ── Album commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+fn create_album(name: String, state: State<'_, AppState>) -> Result<Album, String> {
+    require_writable(state.inner())?;
+    db::create_album(&state.paths.db_file, &name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_album(album_id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::delete_album(&state.paths.db_file, album_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_albums(state: State<'_, AppState>) -> Result<Vec<Album>, String> {
+    db::list_albums(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn add_files_to_album(
+    album_id: i64,
+    file_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    require_writable(state.inner())?;
+    db::add_files_to_album(&state.paths.db_file, album_id, &file_ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_files_from_album(
+    album_id: i64,
+    file_ids: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<u64, String> {
+    require_writable(state.inner())?;
+    db::remove_files_from_album(&state.paths.db_file, album_id, &file_ids)
+        .map_err(|e| e.to_string())
+}
+
+// ── Smart folder commands ───────────────────────────────────────────
+
+#[tauri::command]
+fn create_smart_folder(
+    name: String,
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<SmartFolder, String> {
+    require_writable(state.inner())?;
+    db::create_smart_folder(&state.paths.db_file, &name, &query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_smart_folder(folder_id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::delete_smart_folder(&state.paths.db_file, folder_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_smart_folders(state: State<'_, AppState>) -> Result<Vec<SmartFolder>, String> {
+    db::list_smart_folders(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn load_user_config() -> Result<serde_json::Value, String> {
     config::load_user_config().map_err(|e| e.to_string())
@@ -725,7 +789,15 @@ pub fn run() {
             delete_files,
             rename_file,
             get_file_metadata,
-            update_file_metadata
+            update_file_metadata,
+            create_album,
+            delete_album,
+            list_albums,
+            add_files_to_album,
+            remove_files_from_album,
+            create_smart_folder,
+            delete_smart_folder,
+            list_smart_folders
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

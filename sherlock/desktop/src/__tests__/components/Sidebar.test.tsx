@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Sidebar from "../../components/Sidebar/Sidebar";
-import type { RootInfo, ScanJobStatus } from "../../types";
+import type { Album, RootInfo, ScanJobStatus, SmartFolder } from "../../types";
 import { mockRoot as sampleRoot, mockRunningScan } from "../fixtures";
 
 const defaultProps = {
@@ -12,11 +12,19 @@ const defaultProps = {
   dbStats: null,
   readOnly: false,
   setupReady: true,
+  albums: [] as Album[],
+  smartFolders: [] as SmartFolder[],
+  activeAlbumName: null,
+  activeSmartFolderId: null,
   onSelectRoot: vi.fn(),
   onDeleteRoot: vi.fn(),
   onPickAndScan: vi.fn(),
   onCancelScan: vi.fn(),
   onResumeScan: vi.fn(),
+  onSelectAlbum: vi.fn(),
+  onDeleteAlbum: vi.fn(),
+  onSelectSmartFolder: vi.fn(),
+  onDeleteSmartFolder: vi.fn(),
 };
 
 describe("Sidebar", () => {

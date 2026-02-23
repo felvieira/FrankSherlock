@@ -12,6 +12,7 @@ type Props = {
   sortOrder: SortOrder;
   onSortOrderChange: (value: SortOrder) => void;
   hasTextQuery: boolean;
+  onSaveSmartFolder?: () => void;
 };
 
 const sortOptions: { value: SortField; label: string; icon: JSX.Element; requiresQuery?: boolean }[] = [
@@ -35,7 +36,7 @@ const sortOptions: { value: SortField; label: string; icon: JSX.Element; require
 
 export default function Toolbar({
   query, onQueryChange, selectedMediaType, onMediaTypeChange, mediaTypeOptions,
-  sortBy, onSortByChange, sortOrder, onSortOrderChange, hasTextQuery,
+  sortBy, onSortByChange, sortOrder, onSortOrderChange, hasTextQuery, onSaveSmartFolder,
 }: Props) {
   useEffect(() => {
     if (!hasTextQuery && sortBy === "relevance") {
@@ -52,6 +53,18 @@ export default function Toolbar({
         onChange={(e) => onQueryChange(e.target.value)}
         aria-label="Search query"
       />
+      {hasTextQuery && onSaveSmartFolder && (
+        <button
+          className="toolbar-save-btn"
+          onClick={onSaveSmartFolder}
+          title="Save as Smart Folder"
+          aria-label="Save as Smart Folder"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M2 1h10l3 3v10a1 1 0 01-1 1H2a1 1 0 01-1-1V2a1 1 0 011-1zm2 0v4h7V1H4zm4 6a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
+          </svg>
+        </button>
+      )}
       <select
         value={selectedMediaType}
         onChange={(e) => onMediaTypeChange(e.target.value)}

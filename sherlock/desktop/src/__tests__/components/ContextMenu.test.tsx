@@ -2,15 +2,19 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ContextMenu from "../../components/Content/ContextMenu";
+import type { Album } from "../../types";
 
 const baseProps = {
   x: 100,
   y: 200,
   selectedCount: 1,
+  albums: [] as Album[],
   onCopy: vi.fn(),
   onRename: vi.fn(),
   onEditMetadata: vi.fn(),
   onDelete: vi.fn(),
+  onAddToAlbum: vi.fn(),
+  onCreateAlbumFromSelection: vi.fn(),
   onClose: vi.fn(),
 };
 
@@ -76,8 +80,14 @@ describe("ContextMenu", () => {
   it("calls onEditMetadata when Edit Metadata clicked", async () => {
     const user = userEvent.setup();
     const onEditMetadata = vi.fn();
-    render(<ContextMenu {...baseProps} onEditMetadata={onEditMetadata} />);
+    render(<ContextMenu {...baseProps} selectedCount={1} onEditMetadata={onEditMetadata} />);
     await user.click(screen.getByText("Edit Metadata"));
     expect(onEditMetadata).toHaveBeenCalledOnce();
+  });
+
+  it("shows Add to Album submenu", () => {
+    render(<ContextMenu {...baseProps} />);
+    expect(screen.getByText("Add to Album")).toBeInTheDocument();
+    expect(screen.getByText("New Album...")).toBeInTheDocument();
   });
 });

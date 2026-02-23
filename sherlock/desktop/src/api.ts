@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Album,
   AppPaths,
   DbStats,
   DeleteFilesResult,
@@ -12,6 +13,7 @@ import type {
   ScanJobStatus,
   SetupDownloadStatus,
   SetupStatus,
+  SmartFolder,
   SearchRequest,
   SearchResponse
 } from "./types";
@@ -103,4 +105,40 @@ export async function updateFileMetadata(
   return invoke<void>("update_file_metadata", {
     fileId, mediaType, description, extractedText, canonicalMentions, locationText,
   });
+}
+
+// ── Albums ──────────────────────────────────────────────────────────
+
+export async function createAlbum(name: string): Promise<Album> {
+  return invoke<Album>("create_album", { name });
+}
+
+export async function deleteAlbum(albumId: number): Promise<void> {
+  return invoke<void>("delete_album", { albumId });
+}
+
+export async function listAlbums(): Promise<Album[]> {
+  return invoke<Album[]>("list_albums");
+}
+
+export async function addFilesToAlbum(albumId: number, fileIds: number[]): Promise<number> {
+  return invoke<number>("add_files_to_album", { albumId, fileIds });
+}
+
+export async function removeFilesFromAlbum(albumId: number, fileIds: number[]): Promise<number> {
+  return invoke<number>("remove_files_from_album", { albumId, fileIds });
+}
+
+// ── Smart Folders ───────────────────────────────────────────────────
+
+export async function createSmartFolder(name: string, query: string): Promise<SmartFolder> {
+  return invoke<SmartFolder>("create_smart_folder", { name, query });
+}
+
+export async function deleteSmartFolder(folderId: number): Promise<void> {
+  return invoke<void>("delete_smart_folder", { folderId });
+}
+
+export async function listSmartFolders(): Promise<SmartFolder[]> {
+  return invoke<SmartFolder[]>("list_smart_folders");
 }

@@ -1,4 +1,4 @@
-import type { RootInfo, ScanJobStatus, SearchItem } from "../types";
+import type { Album, RootInfo, ScanJobStatus, SearchItem, SmartFolder } from "../types";
 
 export const mockSearchItem: SearchItem = {
   id: 1,
@@ -38,4 +38,18 @@ export const mockRunningScan: ScanJobStatus = {
   deleted: 0,
   startedAt: 0,
   updatedAt: 0,
+};
+
+export const mockAlbum: Album = {
+  id: 1,
+  name: "Vacation",
+  createdAt: 0,
+  fileCount: 5,
+};
+
+export const mockSmartFolder: SmartFolder = {
+  id: 1,
+  name: "Anime photos",
+  query: "anime photo",
+  createdAt: 0,
 };

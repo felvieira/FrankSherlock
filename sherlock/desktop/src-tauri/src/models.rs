@@ -94,6 +94,8 @@ pub struct ParsedQuery {
     pub min_confidence: Option<f32>,
     pub root_hints: Vec<String>,
     pub parser_confidence: f32,
+    #[serde(default)]
+    pub album_name: Option<String>,
 }
 
 impl ParsedQuery {
@@ -107,8 +109,27 @@ impl ParsedQuery {
             min_confidence: None,
             root_hints: Vec::new(),
             parser_confidence: 0.2,
+            album_name: None,
         }
     }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Album {
+    pub id: i64,
+    pub name: String,
+    pub created_at: i64,
+    pub file_count: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartFolder {
+    pub id: i64,
+    pub name: String,
+    pub query: String,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

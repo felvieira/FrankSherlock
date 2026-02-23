@@ -96,6 +96,26 @@
   flex-shrink: 0;
 }
 
+.toolbar-save-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toolbar-save-btn:hover {
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+
 /* ── Content body ─────────────────────────────────────────── */
 .content-body {
   flex: 1;

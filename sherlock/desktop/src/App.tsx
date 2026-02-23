@@ -1,13 +1,19 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { copyFilesToClipboard, deleteFiles, ensureDatabase, removeRoot, renameFile, updateFileMetadata } from "./api";
+import {
+  addFilesToAlbum, copyFilesToClipboard, createAlbum, createSmartFolder,
+  deleteAlbum, deleteFiles, deleteSmartFolder, ensureDatabase, listAlbums,
+  listSmartFolders, removeRoot, renameFile, updateFileMetadata,
+} from "./api";
 import type {
+  Album,
   DbStats,
   FileMetadata,
   RootInfo,
   RuntimeStatus,
   SearchItem,
   SetupStatus,
+  SmartFolder,
   SortField,
   SortOrder,
 } from "./types";
@@ -29,6 +35,8 @@ import RenameModal from "./components/modals/RenameModal";
 import HelpModal from "./components/modals/HelpModal";
 import EditMetadataModal from "./components/modals/EditMetadataModal";
 import ModelInfoModal from "./components/modals/ModelInfoModal";
+import CreateAlbumModal from "./components/modals/CreateAlbumModal";
+import CreateSmartFolderModal from "./components/modals/CreateSmartFolderModal";
 import { useToast } from "./hooks/useToast";
 import { useUserConfig } from "./hooks/useUserConfig";
 import { useGridColumns } from "./hooks/useGridColumns";
@@ -66,6 +74,14 @@ export default function App() {
   const [editMetadataItem, setEditMetadataItem] = useState<SearchItem | null>(null);
   const [forceShowSetup, setForceShowSetup] = useState(false); // F11 debug toggle
 
+  /* ── Album & Smart Folder state ── */
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [smartFolders, setSmartFolders] = useState<SmartFolder[]>([]);
+  const [showCreateAlbum, setShowCreateAlbum] = useState(false);
+  const [showCreateSmartFolder, setShowCreateSmartFolder] = useState(false);
+  const [pendingAlbumFileIds, setPendingAlbumFileIds] = useState<number[]>([]);
+  const [activeSmartFolderId, setActiveSmartFolderId] = useState<number | null>(null);
+
   /* ── Refs ── */
   const sentinelRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -82,7 +98,6 @@ export default function App() {
 
   const onReconcileSelection = useCallback((oldItems: SearchItem[], newItems: SearchItem[]) => {
     if (selectedIndices.size === 0) return;
-    // Map old indices → item IDs
     const selectedIds = new Set<number>();
     let focusId: number | null = null;
     let anchorId: number | null = null;
@@ -97,7 +112,6 @@ export default function App() {
     if (anchorIndex !== null && anchorIndex < oldItems.length) {
       anchorId = oldItems[anchorIndex].id;
     }
-    // Map IDs → new indices
     const newSelection = new Set<number>();
     let newFocus: number | null = null;
     let newAnchor: number | null = null;
@@ -136,11 +150,26 @@ export default function App() {
     itemsLength: () => items.length,
   });
 
-  useAppInit(scanManager.initApp);
+  /* ── Refresh helpers ── */
+  async function refreshAlbums() {
+    try { setAlbums(await listAlbums()); } catch { /* ignore */ }
+  }
+  async function refreshSmartFolders() {
+    try { setSmartFolders(await listSmartFolders()); } catch { /* ignore */ }
+  }
+
+  /* ── Extended initApp: also load albums + smart folders ── */
+  const initApp = useCallback(async () => {
+    await scanManager.initApp();
+    try { setAlbums(await listAlbums()); } catch { /* ignore */ }
+    try { setSmartFolders(await listSmartFolders()); } catch { /* ignore */ }
+  }, [scanManager.initApp]);
+
+  useAppInit(initApp);
   usePolling(POLL_MS, scanManager.pollRuntimeAndScans, [scanManager.trackedJobIds]);
   useInfiniteScroll(sentinelRef, onLoadMore, [items.length, total, loadingMore]);
 
-  const hasModalOpen = !!(confirmDeleteFiles || renameItem || editMetadataItem);
+  const hasModalOpen = !!(confirmDeleteFiles || renameItem || editMetadataItem || showCreateAlbum || showCreateSmartFolder);
 
   const onRequestDelete = useCallback(() => {
     const filesToDelete = [...selectedIndices].sort((a, b) => a - b)
@@ -203,9 +232,14 @@ export default function App() {
     : [];
   const singlePreviewIndex = selectedIndices.size === 1 ? [...selectedIndices][0] : null;
 
+  // Derive active album name from query (for sidebar highlight)
+  const activeAlbumName = useMemo(() => {
+    const match = query.match(/^album:(?:"([^"]+)"|(\S+))$/i);
+    return match ? (match[1] ?? match[2] ?? null) : null;
+  }, [query]);
+
   /* ── Handlers ── */
   function onWindowClose() {
-    // Rust on_window_event(CloseRequested) handles model cleanup
     void getCurrentWindow().close();
   }
 
@@ -242,7 +276,6 @@ export default function App() {
 
   function onTileContextMenu(idx: number, e: React.MouseEvent) {
     e.preventDefault();
-    // If tile is not in selection, select it first
     if (!selectedIndices.has(idx)) selectOnly(idx);
     setContextMenu({ x: e.clientX, y: e.clientY });
   }
@@ -326,6 +359,91 @@ export default function App() {
     }
   }
 
+  /* ── Album handlers ── */
+  function handleSelectAlbum(album: Album) {
+    const q = album.name.includes(" ") ? `album:"${album.name}"` : `album:${album.name}`;
+    setQuery(q);
+    setActiveSmartFolderId(null);
+  }
+
+  async function handleDeleteAlbum(album: Album) {
+    try {
+      await deleteAlbum(album.id);
+      await refreshAlbums();
+      setNotice(`Deleted album "${album.name}"`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function handleAddToAlbum(albumId: number) {
+    setContextMenu(null);
+    const fileIds = [...selectedIndices].sort((a, b) => a - b)
+      .filter(i => i < items.length)
+      .map(i => items[i].id);
+    if (fileIds.length === 0) return;
+    try {
+      const added = await addFilesToAlbum(albumId, fileIds);
+      await refreshAlbums();
+      setNotice(`Added ${added} file(s) to album`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  function handleCreateAlbumFromSelection() {
+    setContextMenu(null);
+    const fileIds = [...selectedIndices].sort((a, b) => a - b)
+      .filter(i => i < items.length)
+      .map(i => items[i].id);
+    setPendingAlbumFileIds(fileIds);
+    setShowCreateAlbum(true);
+  }
+
+  async function handleCreateAlbumConfirm(name: string) {
+    setShowCreateAlbum(false);
+    try {
+      const album = await createAlbum(name);
+      if (pendingAlbumFileIds.length > 0) {
+        await addFilesToAlbum(album.id, pendingAlbumFileIds);
+      }
+      setPendingAlbumFileIds([]);
+      await refreshAlbums();
+      setNotice(`Created album "${name}"${pendingAlbumFileIds.length > 0 ? ` with ${pendingAlbumFileIds.length} file(s)` : ""}`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  /* ── Smart Folder handlers ── */
+  function handleSelectSmartFolder(folder: SmartFolder) {
+    setQuery(folder.query);
+    setActiveSmartFolderId(folder.id);
+  }
+
+  async function handleDeleteSmartFolder(folder: SmartFolder) {
+    try {
+      await deleteSmartFolder(folder.id);
+      await refreshSmartFolders();
+      if (activeSmartFolderId === folder.id) setActiveSmartFolderId(null);
+      setNotice(`Deleted smart folder "${folder.name}"`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function handleCreateSmartFolderConfirm(name: string) {
+    setShowCreateSmartFolder(false);
+    try {
+      const folder = await createSmartFolder(name, query);
+      await refreshSmartFolders();
+      setActiveSmartFolderId(folder.id);
+      setNotice(`Saved smart folder "${name}"`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   /* ── JSX ── */
   return (
     <div className="app-shell">
@@ -383,10 +501,13 @@ export default function App() {
           x={contextMenu.x}
           y={contextMenu.y}
           selectedCount={selectedIndices.size}
+          albums={albums}
           onCopy={handleContextCopy}
           onRename={handleContextRename}
           onEditMetadata={handleContextEditMetadata}
           onDelete={handleContextDelete}
+          onAddToAlbum={handleAddToAlbum}
+          onCreateAlbumFromSelection={handleCreateAlbumFromSelection}
           onClose={() => setContextMenu(null)}
         />
       )}
@@ -395,6 +516,19 @@ export default function App() {
           fileId={editMetadataItem.id}
           onSave={handleSaveMetadata}
           onCancel={() => setEditMetadataItem(null)}
+        />
+      )}
+      {showCreateAlbum && (
+        <CreateAlbumModal
+          onCancel={() => { setShowCreateAlbum(false); setPendingAlbumFileIds([]); }}
+          onConfirm={handleCreateAlbumConfirm}
+        />
+      )}
+      {showCreateSmartFolder && (
+        <CreateSmartFolderModal
+          query={query}
+          onCancel={() => setShowCreateSmartFolder(false)}
+          onConfirm={handleCreateSmartFolderConfirm}
         />
       )}
 
@@ -417,16 +551,24 @@ export default function App() {
           dbStats={dbStats}
           readOnly={readOnly}
           setupReady={setup ? setup.isReady : false}
+          albums={albums}
+          smartFolders={smartFolders}
+          activeAlbumName={activeAlbumName}
+          activeSmartFolderId={activeSmartFolderId}
           onSelectRoot={setSelectedRootId}
           onDeleteRoot={(root) => setConfirmDeleteRoot(root)}
           onPickAndScan={() => scanManager.onPickAndScan(setup, readOnly)}
           onCancelScan={(scan) => scanManager.onCancelScan(scan, readOnly)}
           onResumeScan={(scan) => scanManager.onResumeScan(scan, readOnly)}
+          onSelectAlbum={handleSelectAlbum}
+          onDeleteAlbum={handleDeleteAlbum}
+          onSelectSmartFolder={handleSelectSmartFolder}
+          onDeleteSmartFolder={handleDeleteSmartFolder}
         />
 
         <Content
           query={query}
-          onQueryChange={setQuery}
+          onQueryChange={(q) => { setQuery(q); setActiveSmartFolderId(null); }}
           selectedMediaType={selectedMediaType}
           onMediaTypeChange={setSelectedMediaType}
           mediaTypeOptions={mediaTypeOptions}
@@ -435,6 +577,7 @@ export default function App() {
           sortOrder={sortOrder}
           onSortOrderChange={setSortOrder}
           hasTextQuery={query.trim().length > 0}
+          onSaveSmartFolder={() => setShowCreateSmartFolder(true)}
           items={items}
           total={total}
           loading={loading}

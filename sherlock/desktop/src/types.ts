@@ -20,6 +20,7 @@ export type ParsedQuery = {
   minConfidence?: number | null;
   rootHints: string[];
   parserConfidence: number;
+  albumName?: string | null;
 };
 
 export type SearchResponse = {
@@ -154,4 +155,18 @@ export type FileMetadata = {
   extractedText: string;
   canonicalMentions: string;
   locationText: string;
+};
+
+export type Album = {
+  id: number;
+  name: string;
+  createdAt: number;
+  fileCount: number;
+};
+
+export type SmartFolder = {
+  id: number;
+  name: string;
+  query: string;
+  createdAt: number;
 };

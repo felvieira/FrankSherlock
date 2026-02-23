@@ -1,19 +1,25 @@
 import { useEffect, useRef } from "react";
+import type { Album } from "../../types";
 import "./ContextMenu.css";
 
 type Props = {
   x: number;
   y: number;
   selectedCount: number;
+  albums: Album[];
   onCopy: () => void;
   onRename: () => void;
   onEditMetadata: () => void;
   onDelete: () => void;
+  onAddToAlbum: (albumId: number) => void;
+  onCreateAlbumFromSelection: () => void;
   onClose: () => void;
 };
 
 export default function ContextMenu({
-  x, y, selectedCount, onCopy, onRename, onEditMetadata, onDelete, onClose,
+  x, y, selectedCount, albums,
+  onCopy, onRename, onEditMetadata, onDelete,
+  onAddToAlbum, onCreateAlbumFromSelection, onClose,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -77,6 +83,32 @@ export default function ContextMenu({
           <span>Edit Metadata</span>
         </button>
       )}
+
+      <div className="context-menu-parent" role="menuitem">
+        <span>Add to Album</span>
+        <span className="context-menu-arrow">&#9656;</span>
+        <div className="context-menu-submenu" role="menu">
+          {albums.map((album) => (
+            <button
+              key={album.id}
+              className="context-menu-item"
+              role="menuitem"
+              onClick={() => onAddToAlbum(album.id)}
+            >
+              <span>{album.name}</span>
+              <span className="context-menu-shortcut">{album.fileCount}</span>
+            </button>
+          ))}
+          {albums.length > 0 && <div className="context-menu-separator" role="separator" />}
+          <button
+            className="context-menu-item"
+            role="menuitem"
+            onClick={onCreateAlbumFromSelection}
+          >
+            <span>New Album...</span>
+          </button>
+        </div>
+      </div>
 
       <div className="context-menu-separator" role="separator" />
 

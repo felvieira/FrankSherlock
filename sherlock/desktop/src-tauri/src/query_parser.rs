@@ -8,7 +8,17 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         return ParsedQuery::passthrough("");
     }
 
-    let lower = raw.to_lowercase();
+    // Extract album:name or album:"name with spaces" prefix
+    let mut album_name: Option<String> = None;
+    let album_re = Regex::new(r#"(?i)\balbum:(?:"([^"]+)"|(\S+))"#).expect("valid regex");
+    let working_query = if let Some(cap) = album_re.captures(raw) {
+        album_name = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().to_string());
+        album_re.replace(raw, "").trim().to_string()
+    } else {
+        raw.to_string()
+    };
+
+    let lower = working_query.to_lowercase();
     let mut media_types = Vec::new();
     let mut root_hints = Vec::new();
     let mut min_confidence = None;
@@ -43,13 +53,13 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
     }
     dedup(&mut media_types);
 
-    if let Some(conf) = parse_min_confidence(raw) {
+    if let Some(conf) = parse_min_confidence(&working_query) {
         min_confidence = Some(conf);
         score += 0.15;
     }
 
     let root_re = Regex::new(r"(?i)\bin\s+([A-Za-z0-9._/\-]+)").expect("valid regex");
-    for cap in root_re.captures_iter(raw) {
+    for cap in root_re.captures_iter(&working_query) {
         if let Some(v) = cap.get(1) {
             root_hints.push(v.as_str().to_string());
         }
@@ -58,21 +68,26 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         score += 0.1;
     }
 
-    if let Some((start, end)) = parse_date_range(raw) {
+    if let Some((start, end)) = parse_date_range(&working_query) {
         date_from = Some(start);
         date_to = end;
         score += 0.2;
     }
 
+    if album_name.is_some() {
+        score += 0.3;
+    }
+
     ParsedQuery {
         raw_query: raw.to_string(),
-        query_text: raw.to_string(),
+        query_text: working_query,
         media_types,
         date_from,
         date_to,
         min_confidence,
         root_hints,
         parser_confidence: score.clamp(0.0, 1.0),
+        album_name,
     }
 }
 
@@ -155,5 +170,33 @@ mod tests {
         let parsed = parse_query(" ");
         assert_eq!(parsed.query_text, "");
         assert!(parsed.media_types.is_empty());
+    }
+
+    #[test]
+    fn parses_album_prefix_simple() {
+        let parsed = parse_query("album:vacation beach");
+        assert_eq!(parsed.album_name.as_deref(), Some("vacation"));
+        assert_eq!(parsed.query_text, "beach");
+    }
+
+    #[test]
+    fn parses_album_prefix_quoted() {
+        let parsed = parse_query("album:\"my trip\" sunset");
+        assert_eq!(parsed.album_name.as_deref(), Some("my trip"));
+        assert_eq!(parsed.query_text, "sunset");
+    }
+
+    #[test]
+    fn album_only_query() {
+        let parsed = parse_query("album:favorites");
+        assert_eq!(parsed.album_name.as_deref(), Some("favorites"));
+        assert_eq!(parsed.query_text, "");
+    }
+
+    #[test]
+    fn no_album_prefix() {
+        let parsed = parse_query("beach sunset");
+        assert!(parsed.album_name.is_none());
+        assert_eq!(parsed.query_text, "beach sunset");
     }
 }

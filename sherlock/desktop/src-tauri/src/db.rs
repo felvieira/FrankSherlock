@@ -7,9 +7,9 @@ use rusqlite_migration::{HookError, Migrations, M};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    DbStats, ExistingFile, FileMetadata, FileRecordUpsert, HealthCheckOutcome, ParsedQuery,
+    Album, DbStats, ExistingFile, FileMetadata, FileRecordUpsert, HealthCheckOutcome, ParsedQuery,
     PurgeResult, RootInfo, ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse,
-    SortField, SortOrder,
+    SmartFolder, SortField, SortOrder,
 };
 use crate::query_parser::parse_query;
 
@@ -158,6 +158,36 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
         M::up_with_hook("SELECT 1;", |conn| {
             rebuild_fts_with_location(conn).map_err(|e| HookError::Hook(e.to_string()))
         }),
+        // Migration 3: Albums + album_files
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS albums (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS album_files (
+                album_id INTEGER NOT NULL,
+                file_id INTEGER NOT NULL,
+                added_at INTEGER NOT NULL,
+                PRIMARY KEY (album_id, file_id),
+                FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+                FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_album_files_file ON album_files(file_id);
+            "#,
+        ),
+        // Migration 4: Smart folders
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS smart_folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                query TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            "#,
+        ),
     ]);
 
     migrations
@@ -1041,7 +1071,8 @@ fn search_images_normalized(
     let conn = open_conn(db_path)?;
     let limit = request.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = request.offset.unwrap_or(0);
-    let query = request.query.trim().to_string();
+    // Use parsed query_text (which strips album: prefix) for FTS matching
+    let query = parsed.query_text.trim().to_string();
     let fts_query = to_fts_query(&query);
     let has_query = !fts_query.is_empty();
 
@@ -1061,6 +1092,15 @@ fn search_images_normalized(
         for root_id in &request.root_scope {
             bind_values.push(Value::Integer(*root_id));
         }
+    }
+
+    if let Some(album_name) = &parsed.album_name {
+        from_sql.push_str(
+            " JOIN album_files af ON af.file_id = f.id \
+             JOIN albums a ON a.id = af.album_id ",
+        );
+        where_clauses.push("a.name = ? COLLATE NOCASE".to_string());
+        bind_values.push(Value::Text(album_name.clone()));
     }
 
     let media_types = normalize_media_types(&request.media_types);
@@ -1321,6 +1361,132 @@ fn now_epoch_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+// ── Albums ──────────────────────────────────────────────────────────
+
+pub fn create_album(db_path: &Path, name: &str) -> AppResult<Album> {
+    let conn = open_conn(db_path)?;
+    let now = now_epoch_secs();
+    conn.execute(
+        "INSERT INTO albums (name, created_at) VALUES (?1, ?2)",
+        params![name, now],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(Album {
+        id,
+        name: name.to_string(),
+        created_at: now,
+        file_count: 0,
+    })
+}
+
+pub fn delete_album(db_path: &Path, album_id: i64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute("DELETE FROM albums WHERE id = ?1", params![album_id])?;
+    Ok(())
+}
+
+pub fn list_albums(db_path: &Path) -> AppResult<Vec<Album>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.name, a.created_at,
+                (SELECT COUNT(*) FROM album_files af
+                 JOIN files f ON f.id = af.file_id
+                 WHERE af.album_id = a.id AND f.deleted_at IS NULL) AS file_count
+         FROM albums a ORDER BY a.name COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Album {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            created_at: row.get(2)?,
+            file_count: row.get::<_, i64>(3)? as u64,
+        })
+    })?;
+    let mut albums = Vec::new();
+    for row in rows {
+        albums.push(row?);
+    }
+    Ok(albums)
+}
+
+pub fn add_files_to_album(db_path: &Path, album_id: i64, file_ids: &[i64]) -> AppResult<u64> {
+    let conn = open_conn(db_path)?;
+    let now = now_epoch_secs();
+    let mut count = 0u64;
+    for fid in file_ids {
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO album_files (album_id, file_id, added_at) VALUES (?1, ?2, ?3)",
+            params![album_id, fid, now],
+        )?;
+        count += inserted as u64;
+    }
+    Ok(count)
+}
+
+pub fn remove_files_from_album(
+    db_path: &Path,
+    album_id: i64,
+    file_ids: &[i64],
+) -> AppResult<u64> {
+    let conn = open_conn(db_path)?;
+    let mut count = 0u64;
+    for fid in file_ids {
+        let deleted = conn.execute(
+            "DELETE FROM album_files WHERE album_id = ?1 AND file_id = ?2",
+            params![album_id, fid],
+        )?;
+        count += deleted as u64;
+    }
+    Ok(count)
+}
+
+// ── Smart Folders ───────────────────────────────────────────────────
+
+pub fn create_smart_folder(db_path: &Path, name: &str, query: &str) -> AppResult<SmartFolder> {
+    let conn = open_conn(db_path)?;
+    let now = now_epoch_secs();
+    conn.execute(
+        "INSERT INTO smart_folders (name, query, created_at) VALUES (?1, ?2, ?3)",
+        params![name, query, now],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(SmartFolder {
+        id,
+        name: name.to_string(),
+        query: query.to_string(),
+        created_at: now,
+    })
+}
+
+pub fn delete_smart_folder(db_path: &Path, folder_id: i64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "DELETE FROM smart_folders WHERE id = ?1",
+        params![folder_id],
+    )?;
+    Ok(())
+}
+
+pub fn list_smart_folders(db_path: &Path) -> AppResult<Vec<SmartFolder>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, query, created_at FROM smart_folders ORDER BY name COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SmartFolder {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            query: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    })?;
+    let mut folders = Vec::new();
+    for row in rows {
+        folders.push(row?);
+    }
+    Ok(folders)
 }
 
 #[cfg(test)]
@@ -2017,11 +2183,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (3 migrations applied → version 3)
+        // Verify user_version is set (5 migrations applied → version 5)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 3);
+        assert_eq!(version, 5);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -2037,6 +2203,9 @@ mod tests {
         assert!(tables.contains(&"files".to_string()));
         assert!(tables.contains(&"scan_jobs".to_string()));
         assert!(tables.contains(&"files_fts".to_string()));
+        assert!(tables.contains(&"albums".to_string()));
+        assert!(tables.contains(&"album_files".to_string()));
+        assert!(tables.contains(&"smart_folders".to_string()));
     }
 
     #[test]
@@ -2059,8 +2228,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 3 migrations (indices 0, 1, 2), so user_version should be 3
-        assert_eq!(version, 3);
+        // We have 5 migrations (indices 0..4), so user_version should be 5
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -2333,5 +2502,121 @@ mod tests {
         let result = search_images(&db_path, &req).expect("search");
         assert_eq!(result.total, 1);
         assert_eq!(result.items[0].rel_path, "edit.jpg");
+    }
+
+    // -----------------------------------------------------------------------
+    // Album CRUD tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_album_crud() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let album = create_album(&db_path, "Vacation").expect("create");
+        assert_eq!(album.name, "Vacation");
+        assert_eq!(album.file_count, 0);
+
+        let albums = list_albums(&db_path).expect("list");
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].name, "Vacation");
+
+        delete_album(&db_path, album.id).expect("delete");
+        let albums = list_albums(&db_path).expect("list after delete");
+        assert!(albums.is_empty());
+    }
+
+    #[test]
+    fn test_album_duplicate_name_fails() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        create_album(&db_path, "Travel").expect("create first");
+        let result = create_album(&db_path, "Travel");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_album_membership() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root_id = upsert_root(&db_path, "/tmp/demo").expect("root");
+        let f1 = upsert_file_record(&db_path, &sample_record(root_id, "a.jpg", "fp-a"))
+            .expect("upsert");
+        let f2 = upsert_file_record(&db_path, &sample_record(root_id, "b.jpg", "fp-b"))
+            .expect("upsert");
+
+        let album = create_album(&db_path, "Best").expect("create");
+        let added = add_files_to_album(&db_path, album.id, &[f1, f2]).expect("add");
+        assert_eq!(added, 2);
+
+        // list_albums should reflect file_count
+        let albums = list_albums(&db_path).expect("list");
+        assert_eq!(albums[0].file_count, 2);
+
+        // INSERT OR IGNORE — adding the same file again should be a no-op
+        let added_again = add_files_to_album(&db_path, album.id, &[f1]).expect("add again");
+        assert_eq!(added_again, 0);
+
+        // Remove one file
+        let removed = remove_files_from_album(&db_path, album.id, &[f1]).expect("remove");
+        assert_eq!(removed, 1);
+        let albums = list_albums(&db_path).expect("list after remove");
+        assert_eq!(albums[0].file_count, 1);
+    }
+
+    #[test]
+    fn test_search_with_album_filter() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root_id = upsert_root(&db_path, "/tmp/demo").expect("root");
+        let f1 = upsert_file_record(&db_path, &sample_record(root_id, "in_album.jpg", "fp-1"))
+            .expect("upsert");
+        let _f2 = upsert_file_record(&db_path, &sample_record(root_id, "not_in_album.jpg", "fp-2"))
+            .expect("upsert");
+
+        let album = create_album(&db_path, "MyAlbum").expect("create");
+        add_files_to_album(&db_path, album.id, &[f1]).expect("add");
+
+        // Search with album: prefix
+        let req = SearchRequest {
+            query: "album:MyAlbum".to_string(),
+            ..SearchRequest::default()
+        };
+        let res = search_images(&db_path, &req).expect("search");
+        assert_eq!(res.total, 1);
+        assert_eq!(res.items[0].rel_path, "in_album.jpg");
+    }
+
+    // -----------------------------------------------------------------------
+    // Smart folder CRUD tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_smart_folder_crud() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let sf = create_smart_folder(&db_path, "Anime photos", "anime photo").expect("create");
+        assert_eq!(sf.name, "Anime photos");
+        assert_eq!(sf.query, "anime photo");
+
+        let folders = list_smart_folders(&db_path).expect("list");
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].name, "Anime photos");
+
+        delete_smart_folder(&db_path, sf.id).expect("delete");
+        let folders = list_smart_folders(&db_path).expect("list after delete");
+        assert!(folders.is_empty());
+    }
+
+    #[test]
+    fn test_smart_folder_duplicate_name_fails() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        create_smart_folder(&db_path, "Receipts", "document receipt").expect("create");
+        let result = create_smart_folder(&db_path, "Receipts", "different query");
+        assert!(result.is_err());
     }
 }
