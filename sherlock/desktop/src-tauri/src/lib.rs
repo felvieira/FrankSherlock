@@ -514,6 +514,26 @@ fn list_smart_folders(state: State<'_, AppState>) -> Result<Vec<SmartFolder>, St
     db::list_smart_folders(&state.paths.db_file).map_err(|e| e.to_string())
 }
 
+// ── Reorder commands ────────────────────────────────────────────────
+
+#[tauri::command]
+fn reorder_roots(ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::reorder_roots(&state.paths.db_file, &ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reorder_albums(ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::reorder_albums(&state.paths.db_file, &ids).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reorder_smart_folders(ids: Vec<i64>, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::reorder_smart_folders(&state.paths.db_file, &ids).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn load_user_config() -> Result<serde_json::Value, String> {
     config::load_user_config().map_err(|e| e.to_string())
@@ -881,7 +901,10 @@ pub fn run() {
             remove_files_from_album,
             create_smart_folder,
             delete_smart_folder,
-            list_smart_folders
+            list_smart_folders,
+            reorder_roots,
+            reorder_albums,
+            reorder_smart_folders
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

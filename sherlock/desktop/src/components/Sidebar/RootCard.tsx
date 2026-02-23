@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RootInfo, ScanJobStatus } from "../../types";
+import { computeEta } from "../../utils/scanEta";
 
 type RootCardProps = {
   root: RootInfo;
@@ -9,9 +10,11 @@ type RootCardProps = {
   onSelect: () => void;
   onDelete: () => void;
   onRescan: () => void;
+  onCancelScan?: () => void;
+  onResumeScan?: () => void;
 };
 
-export default function RootCard({ root, isSelected, scan, readOnly, onSelect, onDelete, onRescan }: RootCardProps) {
+export default function RootCard({ root, isSelected, scan, readOnly, onSelect, onDelete, onRescan, onCancelScan, onResumeScan }: RootCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -63,6 +66,8 @@ export default function RootCard({ root, isSelected, scan, readOnly, onSelect, o
     };
   }, [showMenu, closeMenu]);
 
+  const eta = scan?.status === "running" ? computeEta(scan) : null;
+
   return (
     <div
       className={`root-card${isSelected ? " selected" : ""}`}
@@ -99,10 +104,25 @@ export default function RootCard({ root, isSelected, scan, readOnly, onSelect, o
       <div className="root-card-meta">
         <span>{root.fileCount.toLocaleString()} files</span>
       </div>
-      {scan && (
+      {scan?.status === "running" && (
         <div className="root-card-scan">
           <progress value={progress} max={100} />
           <span>{scan.processedFiles}/{scan.totalFiles}</span>
+          {eta && <span className="root-card-eta">{eta} remaining</span>}
+          <div className="root-card-scan-stats">
+            +{scan.added} new, {scan.modified} mod, {scan.moved} moved
+          </div>
+          {!readOnly && onCancelScan && (
+            <button type="button" className="root-card-scan-btn" onClick={(e) => { e.stopPropagation(); onCancelScan(); }}>Cancel</button>
+          )}
+        </div>
+      )}
+      {scan?.status === "interrupted" && (
+        <div className="root-card-scan root-card-scan-interrupted">
+          <span>Scan interrupted</span>
+          {!readOnly && onResumeScan && (
+            <button type="button" className="root-card-scan-btn" onClick={(e) => { e.stopPropagation(); onResumeScan(); }}>Resume</button>
+          )}
         </div>
       )}
       {showMenu && (

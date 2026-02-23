@@ -1,9 +1,9 @@
 import type { Album, DbStats, RootInfo, ScanJobStatus, SmartFolder } from "../../types";
 import { formatBytes } from "../../utils/format";
+import { useDragReorder } from "../../hooks/useDragReorder";
 import RootCard from "./RootCard";
 import AlbumCard from "./AlbumCard";
 import SmartFolderCard from "./SmartFolderCard";
-import ScanProgress from "./ScanProgress";
 import "./Sidebar.css";
 
 type SidebarProps = {
@@ -27,6 +27,9 @@ type SidebarProps = {
   onDeleteAlbum: (album: Album) => void;
   onSelectSmartFolder: (folder: SmartFolder) => void;
   onDeleteSmartFolder: (folder: SmartFolder) => void;
+  onReorderRoots?: (ids: number[]) => void;
+  onReorderAlbums?: (ids: number[]) => void;
+  onReorderSmartFolders?: (ids: number[]) => void;
 };
 
 export default function Sidebar({
@@ -35,12 +38,14 @@ export default function Sidebar({
   onSelectRoot, onDeleteRoot, onRescanRoot, onPickAndScan,
   onCancelScan, onResumeScan,
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
+  onReorderRoots, onReorderAlbums, onReorderSmartFolders,
 }: SidebarProps) {
-  const runningScans = activeScans.filter((s) => s.status === "running");
-  const interruptedScans = activeScans.filter((s) => s.status === "interrupted");
+  const rootsDrag = useDragReorder({ items: roots, onReorder: onReorderRoots ?? (() => {}), readOnly });
+  const albumsDrag = useDragReorder({ items: albums, onReorder: onReorderAlbums ?? (() => {}), readOnly });
+  const smartFoldersDrag = useDragReorder({ items: smartFolders, onReorder: onReorderSmartFolders ?? (() => {}), readOnly });
 
   function scanForRoot(rootId: number): ScanJobStatus | undefined {
-    return activeScans.find((s) => s.rootId === rootId && s.status === "running");
+    return activeScans.find((s) => s.rootId === rootId && (s.status === "running" || s.status === "interrupted"));
   }
 
   return (
@@ -64,50 +69,44 @@ export default function Sidebar({
         )}
 
         <div className="root-list">
-          {roots.map((root) => (
-            <RootCard
-              key={root.id}
-              root={root}
-              isSelected={selectedRootId === root.id}
-              scan={scanForRoot(root.id)}
-              readOnly={readOnly}
-              onSelect={() => onSelectRoot(selectedRootId === root.id ? null : root.id)}
-              onDelete={() => onDeleteRoot(root)}
-              onRescan={() => onRescanRoot(root)}
-            />
-          ))}
+          {roots.map((root, i) => {
+            const scan = scanForRoot(root.id);
+            const dragProps = rootsDrag.getDragProps(i);
+            return (
+              <div key={root.id} {...dragProps} className={dragProps.className}>
+                <RootCard
+                  root={root}
+                  isSelected={selectedRootId === root.id}
+                  scan={scan}
+                  readOnly={readOnly}
+                  onSelect={() => onSelectRoot(selectedRootId === root.id ? null : root.id)}
+                  onDelete={() => onDeleteRoot(root)}
+                  onRescan={() => onRescanRoot(root)}
+                  onCancelScan={scan?.status === "running" ? () => onCancelScan(scan) : undefined}
+                  onResumeScan={scan?.status === "interrupted" ? () => onResumeScan(scan) : undefined}
+                />
+              </div>
+            );
+          })}
         </div>
-
-        {runningScans.map((scan) => (
-          <ScanProgress
-            key={scan.id}
-            scan={scan}
-            readOnly={readOnly}
-            onCancel={() => onCancelScan(scan)}
-          />
-        ))}
-        {interruptedScans.map((scan) => (
-          <ScanProgress
-            key={scan.id}
-            scan={scan}
-            readOnly={readOnly}
-            onResume={() => onResumeScan(scan)}
-          />
-        ))}
 
         {albums.length > 0 && (
           <>
             <div className="sidebar-section"><span>Albums</span></div>
             <div className="root-list">
-              {albums.map((album) => (
-                <AlbumCard
-                  key={album.id}
-                  album={album}
-                  isSelected={activeAlbumName?.toLowerCase() === album.name.toLowerCase()}
-                  onSelect={() => onSelectAlbum(album)}
-                  onDelete={() => onDeleteAlbum(album)}
-                />
-              ))}
+              {albums.map((album, i) => {
+                const dragProps = albumsDrag.getDragProps(i);
+                return (
+                  <div key={album.id} {...dragProps} className={dragProps.className}>
+                    <AlbumCard
+                      album={album}
+                      isSelected={activeAlbumName?.toLowerCase() === album.name.toLowerCase()}
+                      onSelect={() => onSelectAlbum(album)}
+                      onDelete={() => onDeleteAlbum(album)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -116,15 +115,19 @@ export default function Sidebar({
           <>
             <div className="sidebar-section"><span>Smart Folders</span></div>
             <div className="root-list">
-              {smartFolders.map((folder) => (
-                <SmartFolderCard
-                  key={folder.id}
-                  folder={folder}
-                  isSelected={activeSmartFolderId === folder.id}
-                  onSelect={() => onSelectSmartFolder(folder)}
-                  onDelete={() => onDeleteSmartFolder(folder)}
-                />
-              ))}
+              {smartFolders.map((folder, i) => {
+                const dragProps = smartFoldersDrag.getDragProps(i);
+                return (
+                  <div key={folder.id} {...dragProps} className={dragProps.className}>
+                    <SmartFolderCard
+                      folder={folder}
+                      isSelected={activeSmartFolderId === folder.id}
+                      onSelect={() => onSelectSmartFolder(folder)}
+                      onDelete={() => onDeleteSmartFolder(folder)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </>
         )}

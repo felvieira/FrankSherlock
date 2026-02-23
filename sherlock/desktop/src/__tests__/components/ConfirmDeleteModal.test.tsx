@@ -31,4 +31,14 @@ describe("ConfirmDeleteModal", () => {
     await user.click(screen.getByText("Remove"));
     expect(onConfirm).toHaveBeenCalledWith(root);
   });
+
+  it("shows scan warning when isScanning is true", () => {
+    render(<ConfirmDeleteModal root={root} isScanning onCancel={() => {}} onConfirm={() => {}} />);
+    expect(screen.getByText("A scan is running for this folder and will be cancelled.")).toBeInTheDocument();
+  });
+
+  it("does not show scan warning when isScanning is false", () => {
+    render(<ConfirmDeleteModal root={root} onCancel={() => {}} onConfirm={() => {}} />);
+    expect(screen.queryByText("A scan is running for this folder and will be cancelled.")).not.toBeInTheDocument();
+  });
 });

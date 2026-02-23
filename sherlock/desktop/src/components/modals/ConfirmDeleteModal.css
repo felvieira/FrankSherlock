@@ -23,6 +23,11 @@
   color: var(--text-secondary);
 }
 
+.confirm-scan-warning {
+  color: var(--warning, #e2a032);
+  font-weight: 500;
+}
+
 .danger-btn {
   background: var(--danger) !important;
   border-color: var(--danger) !important;

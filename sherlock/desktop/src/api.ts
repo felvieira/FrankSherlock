@@ -151,3 +151,17 @@ export async function deleteSmartFolder(folderId: number): Promise<void> {
 export async function listSmartFolders(): Promise<SmartFolder[]> {
   return invoke<SmartFolder[]>("list_smart_folders");
 }
+
+// ── Reorder ─────────────────────────────────────────────────────────
+
+export async function reorderRoots(ids: number[]): Promise<void> {
+  return invoke<void>("reorder_roots", { ids });
+}
+
+export async function reorderAlbums(ids: number[]): Promise<void> {
+  return invoke<void>("reorder_albums", { ids });
+}
+
+export async function reorderSmartFolders(ids: number[]): Promise<void> {
+  return invoke<void>("reorder_smart_folders", { ids });
+}

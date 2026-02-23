@@ -23,7 +23,7 @@ describe("RootCard", () => {
   it("calls onSelect when clicked", async () => {
     const onSelect = vi.fn();
     render(
-      <RootCard root={sampleRoot} isSelected={false} scan={undefined} readOnly={false} onSelect={onSelect} onDelete={vi.fn()} />
+      <RootCard root={sampleRoot} isSelected={false} scan={undefined} readOnly={false} onSelect={onSelect} onDelete={vi.fn()} onRescan={vi.fn()} />
     );
     await userEvent.click(screen.getByText("photos"));
     expect(onSelect).toHaveBeenCalled();
@@ -32,7 +32,7 @@ describe("RootCard", () => {
   it("calls onDelete when delete button clicked", async () => {
     const onDelete = vi.fn();
     render(
-      <RootCard root={sampleRoot} isSelected={false} scan={undefined} readOnly={false} onSelect={vi.fn()} onDelete={onDelete} />
+      <RootCard root={sampleRoot} isSelected={false} scan={undefined} readOnly={false} onSelect={vi.fn()} onDelete={onDelete} onRescan={vi.fn()} />
     );
     await userEvent.click(screen.getByLabelText("Remove photos"));
     expect(onDelete).toHaveBeenCalled();
@@ -45,10 +45,44 @@ describe("RootCard", () => {
     expect(screen.queryByLabelText("Remove photos")).not.toBeInTheDocument();
   });
 
-  it("shows scan progress when scan is active", () => {
+  it("shows scan progress with stats when scan is running", () => {
     render(
-      <RootCard root={sampleRoot} isSelected={false} scan={mockRunningScan} readOnly={false} onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} />
+      <RootCard root={sampleRoot} isSelected={false} scan={mockRunningScan} readOnly={false} onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onCancelScan={vi.fn()} />
     );
     expect(screen.getByText("50/100")).toBeInTheDocument();
+    expect(screen.getByText(/\+10 new, 5 mod, 2 moved/)).toBeInTheDocument();
+  });
+
+  it("shows cancel button for running scan", () => {
+    const onCancelScan = vi.fn();
+    render(
+      <RootCard root={sampleRoot} isSelected={false} scan={mockRunningScan} readOnly={false} onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onCancelScan={onCancelScan} />
+    );
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+  });
+
+  it("hides cancel button in readOnly mode", () => {
+    render(
+      <RootCard root={sampleRoot} isSelected={false} scan={mockRunningScan} readOnly onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onCancelScan={vi.fn()} />
+    );
+    expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+  });
+
+  it("shows resume button for interrupted scan", () => {
+    const interruptedScan = { ...mockRunningScan, status: "interrupted" as const };
+    const onResumeScan = vi.fn();
+    render(
+      <RootCard root={sampleRoot} isSelected={false} scan={interruptedScan} readOnly={false} onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onResumeScan={onResumeScan} />
+    );
+    expect(screen.getByText("Scan interrupted")).toBeInTheDocument();
+    expect(screen.getByText("Resume")).toBeInTheDocument();
+  });
+
+  it("hides resume button in readOnly mode", () => {
+    const interruptedScan = { ...mockRunningScan, status: "interrupted" as const };
+    render(
+      <RootCard root={sampleRoot} isSelected={false} scan={interruptedScan} readOnly onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onResumeScan={vi.fn()} />
+    );
+    expect(screen.queryByText("Resume")).not.toBeInTheDocument();
   });
 });

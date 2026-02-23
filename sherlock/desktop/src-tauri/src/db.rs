@@ -188,6 +188,33 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
             );
             "#,
         ),
+        // Migration 5: sort_order column for roots, albums, smart_folders
+        M::up_with_hook(
+            r#"
+            ALTER TABLE roots ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE albums ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE smart_folders ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;
+            "#,
+            |conn| {
+                // Initialize sort_order preserving current ordering
+                conn.execute_batch(
+                    r#"
+                    UPDATE roots SET sort_order = (
+                        SELECT COUNT(*) FROM roots r2 WHERE r2.id < roots.id
+                    );
+                    UPDATE albums SET sort_order = (
+                        SELECT COUNT(*) FROM albums a2
+                        WHERE a2.name COLLATE NOCASE < albums.name COLLATE NOCASE
+                    );
+                    UPDATE smart_folders SET sort_order = (
+                        SELECT COUNT(*) FROM smart_folders s2
+                        WHERE s2.name COLLATE NOCASE < smart_folders.name COLLATE NOCASE
+                    );
+                    "#,
+                )
+                .map_err(|e| HookError::Hook(e.to_string()))
+            },
+        ),
     ]);
 
     migrations
@@ -717,7 +744,7 @@ pub fn list_roots(db_path: &Path) -> AppResult<Vec<RootInfo>> {
     let mut stmt = conn.prepare(
         "SELECT r.id, r.root_path, r.root_name, r.created_at, r.last_scan_at,
                 (SELECT COUNT(*) FROM files f WHERE f.root_id = r.id AND f.deleted_at IS NULL)
-         FROM roots r ORDER BY r.id",
+         FROM roots r ORDER BY r.sort_order, r.id",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(RootInfo {
@@ -1394,7 +1421,7 @@ pub fn list_albums(db_path: &Path) -> AppResult<Vec<Album>> {
                 (SELECT COUNT(*) FROM album_files af
                  JOIN files f ON f.id = af.file_id
                  WHERE af.album_id = a.id AND f.deleted_at IS NULL) AS file_count
-         FROM albums a ORDER BY a.name COLLATE NOCASE",
+         FROM albums a ORDER BY a.sort_order, a.id",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(Album {
@@ -1468,7 +1495,7 @@ pub fn delete_smart_folder(db_path: &Path, folder_id: i64) -> AppResult<()> {
 pub fn list_smart_folders(db_path: &Path) -> AppResult<Vec<SmartFolder>> {
     let conn = open_conn(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT id, name, query, created_at FROM smart_folders ORDER BY name COLLATE NOCASE",
+        "SELECT id, name, query, created_at FROM smart_folders ORDER BY sort_order, id",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(SmartFolder {
@@ -1483,6 +1510,45 @@ pub fn list_smart_folders(db_path: &Path) -> AppResult<Vec<SmartFolder>> {
         folders.push(row?);
     }
     Ok(folders)
+}
+
+pub fn reorder_roots(db_path: &Path, ids: &[i64]) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let tx = conn.unchecked_transaction()?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE roots SET sort_order = ?1 WHERE id = ?2",
+            params![i as i64, id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn reorder_albums(db_path: &Path, ids: &[i64]) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let tx = conn.unchecked_transaction()?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE albums SET sort_order = ?1 WHERE id = ?2",
+            params![i as i64, id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn reorder_smart_folders(db_path: &Path, ids: &[i64]) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let tx = conn.unchecked_transaction()?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE smart_folders SET sort_order = ?1 WHERE id = ?2",
+            params![i as i64, id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2183,11 +2249,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (5 migrations applied → version 5)
+        // Verify user_version is set (6 migrations applied → version 6)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -2228,8 +2294,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 5 migrations (indices 0..4), so user_version should be 5
-        assert_eq!(version, 5);
+        // We have 6 migrations (indices 0..5), so user_version should be 6
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -2621,5 +2687,62 @@ mod tests {
         create_smart_folder(&db_path, "Receipts", "document receipt").expect("create");
         let result = create_smart_folder(&db_path, "Receipts", "different query");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reorder_roots() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let id1 = upsert_root(&db_path, "/tmp/aaa").expect("root1");
+        let id2 = upsert_root(&db_path, "/tmp/bbb").expect("root2");
+        let id3 = upsert_root(&db_path, "/tmp/ccc").expect("root3");
+
+        // Default order is by sort_order then id
+        let roots = list_roots(&db_path).expect("list");
+        assert_eq!(roots[0].id, id1);
+        assert_eq!(roots[1].id, id2);
+        assert_eq!(roots[2].id, id3);
+
+        // Reverse the order
+        reorder_roots(&db_path, &[id3, id1, id2]).expect("reorder");
+        let roots = list_roots(&db_path).expect("list after reorder");
+        assert_eq!(roots[0].id, id3);
+        assert_eq!(roots[1].id, id1);
+        assert_eq!(roots[2].id, id2);
+    }
+
+    #[test]
+    fn test_reorder_albums() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let a = create_album(&db_path, "Alpha").expect("album1");
+        let b = create_album(&db_path, "Beta").expect("album2");
+        let c = create_album(&db_path, "Charlie").expect("album3");
+
+        // Reorder: Charlie, Alpha, Beta
+        reorder_albums(&db_path, &[c.id, a.id, b.id]).expect("reorder");
+        let albums = list_albums(&db_path).expect("list after reorder");
+        assert_eq!(albums[0].id, c.id);
+        assert_eq!(albums[1].id, a.id);
+        assert_eq!(albums[2].id, b.id);
+    }
+
+    #[test]
+    fn test_reorder_smart_folders() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let f1 = create_smart_folder(&db_path, "Anime", "anime").expect("sf1");
+        let f2 = create_smart_folder(&db_path, "Docs", "document").expect("sf2");
+        let f3 = create_smart_folder(&db_path, "Photos", "photo").expect("sf3");
+
+        // Reorder: Photos, Anime, Docs
+        reorder_smart_folders(&db_path, &[f3.id, f1.id, f2.id]).expect("reorder");
+        let folders = list_smart_folders(&db_path).expect("list after reorder");
+        assert_eq!(folders[0].id, f3.id);
+        assert_eq!(folders[1].id, f1.id);
+        assert_eq!(folders[2].id, f2.id);
     }
 }

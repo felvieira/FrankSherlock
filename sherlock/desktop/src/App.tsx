@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  addFilesToAlbum, copyFilesToClipboard, createAlbum, createSmartFolder,
+  addFilesToAlbum, cancelScan, copyFilesToClipboard, createAlbum, createSmartFolder,
   deleteAlbum, deleteFiles, deleteSmartFolder, ensureDatabase, getCliFolderPath,
   getFileMetadata, listAlbums, listRoots, listSmartFolders, removeRoot,
-  renameFile, startScan, updateFileMetadata,
+  renameFile, reorderAlbums, reorderRoots, reorderSmartFolders, startScan,
+  updateFileMetadata,
 } from "./api";
 import type {
   Album,
@@ -313,6 +314,16 @@ export default function App() {
     if (readOnly) return;
     setConfirmDeleteRoot(null);
     try {
+      // Cancel any running scans for this root before removing
+      const runningForRoot = scanManager.activeScans.filter(
+        (s) => s.rootId === root.id && s.status === "running",
+      );
+      for (const scan of runningForRoot) {
+        await cancelScan(scan.id);
+      }
+      if (runningForRoot.length > 0) {
+        await new Promise((r) => setTimeout(r, 300));
+      }
       const result = await removeRoot(root.id);
       if (selectedRootId === root.id) setSelectedRootId(null);
       setNotice(`Removed "${root.rootName}": ${result.filesRemoved} files purged.`);
@@ -537,6 +548,34 @@ export default function App() {
     }
   }
 
+  /* ── Reorder handlers ── */
+  async function handleReorderRoots(ids: number[]) {
+    try {
+      await reorderRoots(ids);
+      await scanManager.refreshRoots();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function handleReorderAlbums(ids: number[]) {
+    try {
+      await reorderAlbums(ids);
+      await refreshAlbums();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function handleReorderSmartFolders(ids: number[]) {
+    try {
+      await reorderSmartFolders(ids);
+      await refreshSmartFolders();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   /* ── JSX ── */
   return (
     <div className="app-shell">
@@ -571,6 +610,9 @@ export default function App() {
       {confirmDeleteRoot && (
         <ConfirmDeleteModal
           root={confirmDeleteRoot}
+          isScanning={scanManager.activeScans.some(
+            (s) => s.rootId === confirmDeleteRoot.id && s.status === "running",
+          )}
           onCancel={() => setConfirmDeleteRoot(null)}
           onConfirm={onDeleteRoot}
         />
@@ -667,6 +709,9 @@ export default function App() {
           onDeleteAlbum={handleDeleteAlbum}
           onSelectSmartFolder={handleSelectSmartFolder}
           onDeleteSmartFolder={handleDeleteSmartFolder}
+          onReorderRoots={handleReorderRoots}
+          onReorderAlbums={handleReorderAlbums}
+          onReorderSmartFolders={handleReorderSmartFolders}
         />
 
         <Content

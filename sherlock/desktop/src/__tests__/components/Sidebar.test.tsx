@@ -26,6 +26,9 @@ const defaultProps = {
   onDeleteAlbum: vi.fn(),
   onSelectSmartFolder: vi.fn(),
   onDeleteSmartFolder: vi.fn(),
+  onReorderRoots: vi.fn(),
+  onReorderAlbums: vi.fn(),
+  onReorderSmartFolders: vi.fn(),
 };
 
 describe("Sidebar", () => {
@@ -73,16 +76,16 @@ describe("Sidebar", () => {
     expect(screen.queryByLabelText("Remove photos")).not.toBeInTheDocument();
   });
 
-  it("renders running scan progress with folder name and ETA only", () => {
-    render(<Sidebar {...defaultProps} activeScans={[mockRunningScan]} />);
-    expect(screen.getByText("photos")).toBeInTheDocument();
-    expect(screen.queryByText(/50.*\/.*100/)).not.toBeInTheDocument();
+  it("renders running scan with cancel button inside RootCard", () => {
+    render(<Sidebar {...defaultProps} roots={[sampleRoot]} activeScans={[mockRunningScan]} />);
+    expect(screen.getByText("50/100")).toBeInTheDocument();
     expect(screen.getByText("Cancel")).toBeInTheDocument();
   });
 
-  it("renders interrupted scan with resume button", () => {
+  it("renders interrupted scan with resume button inside RootCard", () => {
     const interruptedScan = { ...mockRunningScan, id: 11, status: "interrupted" as const };
-    render(<Sidebar {...defaultProps} activeScans={[interruptedScan]} />);
+    render(<Sidebar {...defaultProps} roots={[sampleRoot]} activeScans={[interruptedScan]} />);
+    expect(screen.getByText("Scan interrupted")).toBeInTheDocument();
     expect(screen.getByText("Resume")).toBeInTheDocument();
   });
 
@@ -117,5 +120,17 @@ describe("Sidebar", () => {
     const card = screen.getByText("photos").closest(".root-card")!;
     await userEvent.pointer({ keys: "[MouseRight]", target: card });
     expect(screen.queryByRole("menuitem", { name: "Rescan" })).not.toBeInTheDocument();
+  });
+
+  it("root cards are draggable when not readOnly", () => {
+    render(<Sidebar {...defaultProps} roots={[sampleRoot]} />);
+    const card = screen.getByText("photos").closest(".root-card")!;
+    expect(card.parentElement?.getAttribute("draggable")).toBe("true");
+  });
+
+  it("root cards are not draggable in readOnly mode", () => {
+    render(<Sidebar {...defaultProps} roots={[sampleRoot]} readOnly />);
+    const card = screen.getByText("photos").closest(".root-card")!;
+    expect(card.parentElement?.getAttribute("draggable")).toBe("false");
   });
 });
