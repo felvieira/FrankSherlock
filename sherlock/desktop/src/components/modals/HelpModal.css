@@ -1,0 +1,47 @@
+/* ── Help modal ──────────────────────────────────────────── */
+.help-modal {
+  width: min(560px, 90%);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.help-section {
+  margin-bottom: 12px;
+}
+
+.help-section h4 {
+  margin: 0 0 4px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.help-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.help-modal code {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  border: 1px solid var(--border-primary);
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.help-note {
+  font-style: italic;
+  margin: 8px 0 12px;
+}
+
+.help-shortcut {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}

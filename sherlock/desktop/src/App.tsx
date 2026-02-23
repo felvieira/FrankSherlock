@@ -19,6 +19,7 @@ import ResumeModal from "./components/modals/ResumeModal";
 import ScanSummaryModal from "./components/modals/ScanSummaryModal";
 import PreviewModal from "./components/modals/PreviewModal";
 import ConfirmDeleteModal from "./components/modals/ConfirmDeleteModal";
+import HelpModal from "./components/modals/HelpModal";
 import { useToast } from "./hooks/useToast";
 import { useUserConfig } from "./hooks/useUserConfig";
 import { useGridColumns } from "./hooks/useGridColumns";
@@ -46,6 +47,7 @@ export default function App() {
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [confirmDeleteRoot, setConfirmDeleteRoot] = useState<RootInfo | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   /* ── Refs ── */
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -111,6 +113,8 @@ export default function App() {
     setConfirmDeleteRoot,
     setNotice,
     onLoadMore,
+    showHelp,
+    setShowHelp,
   });
 
   /* ── Derived values ── */
@@ -193,6 +197,7 @@ export default function App() {
           onNavigate={(idx) => { selectOnly(idx); }}
         />
       )}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {confirmDeleteRoot && (
         <ConfirmDeleteModal
           root={confirmDeleteRoot}

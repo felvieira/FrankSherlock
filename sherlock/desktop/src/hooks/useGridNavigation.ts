@@ -13,6 +13,7 @@ type GridNavParams = {
   showSummary: boolean;
   showResumeModal: boolean;
   confirmDeleteRoot: RootInfo | null;
+  showHelp: boolean;
   setup: SetupStatus | null;
   canLoadMore: boolean;
   selectOnly: (idx: number) => void;
@@ -23,6 +24,7 @@ type GridNavParams = {
   setCompletedJobs: (jobs: []) => void;
   setShowResumeModal: (show: boolean) => void;
   setConfirmDeleteRoot: (root: null) => void;
+  setShowHelp: (show: boolean) => void;
   setNotice: (msg: string) => void;
   onLoadMore: () => void;
 };
@@ -33,6 +35,12 @@ export function useGridNavigation(p: GridNavParams) {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
 
+      if (e.key === "F1") {
+        e.preventDefault();
+        p.setShowHelp(!p.showHelp);
+        return;
+      }
+
       if (e.key === "Escape") {
         if (p.showSummary) {
           p.setCompletedJobs([]);
@@ -40,6 +48,8 @@ export function useGridNavigation(p: GridNavParams) {
           p.setShowResumeModal(false);
         } else if (p.confirmDeleteRoot) {
           p.setConfirmDeleteRoot(null);
+        } else if (p.showHelp) {
+          p.setShowHelp(false);
         } else if (p.previewOpen) {
           p.setPreviewOpen(false);
         } else if (p.selectedIndices.size > 0) {
@@ -48,7 +58,7 @@ export function useGridNavigation(p: GridNavParams) {
         return;
       }
 
-      if (p.showResumeModal || p.confirmDeleteRoot || (p.setup && !p.setup.isReady)) return;
+      if (p.showResumeModal || p.confirmDeleteRoot || p.showHelp || (p.setup && !p.setup.isReady)) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key === "c") {
         e.preventDefault();
@@ -124,6 +134,6 @@ export function useGridNavigation(p: GridNavParams) {
   }, [
     p.focusIndex, p.anchorIndex, p.selectedIndices, p.previewOpen,
     p.items.length, p.showSummary, p.showResumeModal, p.confirmDeleteRoot,
-    p.setup?.isReady, p.canLoadMore,
+    p.showHelp, p.setup?.isReady, p.canLoadMore,
   ]);
 }
