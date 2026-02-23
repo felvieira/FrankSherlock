@@ -75,3 +75,10 @@ jobs:
       - name: Run frontend tests
         working-directory: sherlock/desktop
         run: npm run test
+
+      - name: Audit dependencies
+        if: runner.os == 'Linux'
+        working-directory: sherlock/desktop/src-tauri
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
