@@ -8,6 +8,7 @@
     "dev": "vite --host --port 1420",
     "build": "vite build",
     "preview": "vite preview --host --port 1420",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "test:rust": "cd src-tauri && cargo test",
