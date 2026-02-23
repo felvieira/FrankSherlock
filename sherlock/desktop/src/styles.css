@@ -124,10 +124,6 @@ body {
   overflow: hidden;
 }
 
-.main-area.sidebar-collapsed {
-  grid-template-columns: 0px 1fr;
-}
-
 /* ── Sidebar ──────────────────────────────────────────────── */
 .sidebar {
   background: var(--bg-sidebar);
@@ -136,10 +132,6 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-}
-
-.main-area.sidebar-collapsed .sidebar {
-  display: none;
 }
 
 .sidebar-section {
@@ -464,24 +456,6 @@ body {
   align-items: center;
 }
 
-.toolbar-toggle {
-  width: 32px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 16px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-
-.toolbar-toggle:hover {
-  background: var(--bg-hover);
-}
-
 .toolbar input[type="search"] {
   flex: 1;
   min-width: 0;
@@ -489,19 +463,6 @@ body {
 
 .toolbar select {
   width: 140px;
-}
-
-.toolbar .confidence-wrap {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.toolbar .confidence-wrap input {
-  width: 70px;
 }
 
 input,
@@ -1030,6 +991,81 @@ select:disabled {
   align-items: center;
   color: var(--text-secondary);
   font-size: 0.75rem;
+}
+
+/* ── Summary modal ────────────────────────────────────────── */
+.summary-modal {
+  width: min(520px, 90%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.summary-modal h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  margin-bottom: 12px;
+}
+
+.summary-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summary-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--text-primary);
+}
+
+.summary-table tfoot td {
+  border-bottom: none;
+  border-top: 1px solid var(--border-primary);
+  padding-top: 8px;
+}
+
+.summary-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.summary-actions button {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  padding: 6px 14px;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.summary-actions button:hover {
+  border-color: var(--border-focus);
+}
+
+/* ── Disabled sidebar action button ──────────────────────── */
+.sidebar-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sidebar-action-btn:disabled:hover {
+  border-color: var(--border-primary);
 }
 
 /* ── Scrollbar styling ────────────────────────────────────── */

@@ -44,18 +44,18 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dbStats, setDbStats] = useState<DbStats | null>(null);
-  const [minConfidence, setMinConfidence] = useState(0);
+
   const [selectedMediaType, setSelectedMediaType] = useState("");
   const [setup, setSetup] = useState<SetupStatus | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [activeScans, setActiveScans] = useState<ScanJobStatus[]>([]);
-  const [trackedJobId, setTrackedJobId] = useState<number | null>(null);
-  const [latestJob, setLatestJob] = useState<ScanJobStatus | null>(null);
+  const [trackedJobIds, setTrackedJobIds] = useState<number[]>([]);
+  const [completedJobs, setCompletedJobs] = useState<ScanJobStatus[]>([]);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
   const [anchorIndex, setAnchorIndex] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+
   const [zoom, setZoom] = useState(1.25);
   const [roots, setRoots] = useState<RootInfo[]>([]);
   const [selectedRootId, setSelectedRootId] = useState<number | null>(null);
@@ -81,12 +81,10 @@ export default function App() {
 
   const singlePreviewIndex = selectedIndices.size === 1 ? [...selectedIndices][0] : null;
 
-  const currentScan =
-    (trackedJobId ? activeScans.find((job) => job.id === trackedJobId) : null) ??
-    activeScans[0] ??
-    latestJob;
-
   const isScanning = activeScans.some((s) => s.status === "running");
+  const runningScans = activeScans.filter((s) => s.status === "running");
+  const interruptedScans = activeScans.filter((s) => s.status === "interrupted");
+  const showSummary = trackedJobIds.length === 0 && completedJobs.length > 0;
 
   // Load user config (zoom) on mount
   useEffect(() => {
@@ -165,8 +163,9 @@ export default function App() {
         setActiveScans(scans);
         setRoots(rootList);
         setReadOnly(health.readOnly);
-        if (scans.length > 0) {
-          setTrackedJobId(scans[0].id);
+        const runningIds = scans.filter((s) => s.status === "running").map((s) => s.id);
+        if (runningIds.length > 0) {
+          setTrackedJobIds(runningIds);
         }
         const interrupted = scans.filter((s) => s.status === "interrupted");
         if (interrupted.length > 0) {
@@ -187,7 +186,7 @@ export default function App() {
       void pollRuntimeAndScans();
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [trackedJobId]);
+  }, [trackedJobIds]);
 
   useEffect(() => {
     if (setup && !setup.isReady) return;
@@ -195,7 +194,7 @@ export default function App() {
       void runSearch(0, false);
     }, 260);
     return () => clearTimeout(timer);
-  }, [query, minConfidence, selectedMediaType, selectedRootId, setup?.isReady]);
+  }, [query, selectedMediaType, selectedRootId, setup?.isReady]);
 
   // IntersectionObserver for infinite scroll
   useEffect(() => {
@@ -236,7 +235,9 @@ export default function App() {
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
 
       if (e.key === "Escape") {
-        if (showResumeModal) {
+        if (showSummary) {
+          setCompletedJobs([]);
+        } else if (showResumeModal) {
           setShowResumeModal(false);
         } else if (confirmDeleteRoot) {
           setConfirmDeleteRoot(null);
@@ -323,7 +324,7 @@ export default function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focusIndex, anchorIndex, selectedIndices, previewOpen, items.length, showResumeModal, confirmDeleteRoot, setup?.isReady]);
+  }, [focusIndex, anchorIndex, selectedIndices, previewOpen, items.length, showSummary, showResumeModal, confirmDeleteRoot, setup?.isReady]);
 
   function scrollTileIntoView(index: number) {
     const grid = gridRef.current;
@@ -354,45 +355,58 @@ export default function App() {
 
   async function pollRuntimeAndScans() {
     try {
-      const [setupStatus, runtimeStatus, scans, trackedJob] = await Promise.all([
+      const ids = trackedJobIds;
+      const [setupStatus, runtimeStatus, scans, ...trackedResults] = await Promise.all([
         getSetupStatus(),
         getRuntimeStatus(),
         listActiveScans(),
-        trackedJobId !== null ? getScanJob(trackedJobId) : Promise.resolve(null)
+        ...ids.map((id) => getScanJob(id).catch(() => null))
       ]);
       setSetup(setupStatus);
       setRuntime(runtimeStatus);
       setActiveScans(scans);
 
-      if (trackedJob) {
-        setLatestJob(trackedJob);
+      if (ids.length === 0) return;
 
-        // Live-refresh grid: re-run search when new files are processed
-        if (trackedJob.status === "running" && trackedJob.processedFiles > lastProcessedRef.current) {
-          lastProcessedRef.current = trackedJob.processedFiles;
-          const liveLimit = Math.max(PAGE_SIZE, Math.min(items.length, MAX_ITEMS));
-          void runSearch(0, false, liveLimit);
-          void refreshRoots();
-        }
+      const trackedJobs = trackedResults.filter((j): j is ScanJobStatus => j !== null);
 
-        if (trackedJob.status === "completed") {
-          lastProcessedRef.current = 0;
-          setNotice(
-            `Scan completed: ${trackedJob.processedFiles}/${trackedJob.totalFiles} files processed.`
-          );
-          setTrackedJobId(null);
-          const stats = await ensureDatabase();
-          setDbStats(stats);
-          await refreshRoots();
-          await runSearch(0, false);
-        } else if (trackedJob.status === "failed") {
-          lastProcessedRef.current = 0;
-          setError(trackedJob.errorText || "Scan failed.");
-          setTrackedJobId(null);
+      const stillTracked: number[] = [];
+      const justCompleted: ScanJobStatus[] = [];
+      let maxProcessed = 0;
+      let anyRunning = false;
+
+      for (const job of trackedJobs) {
+        if (job.status === "running" || job.status === "pending" || job.status === "interrupted") {
+          stillTracked.push(job.id);
+          if (job.status === "running") {
+            anyRunning = true;
+            if (job.processedFiles > maxProcessed) maxProcessed = job.processedFiles;
+          }
+        } else if (job.status === "completed") {
+          justCompleted.push(job);
+        } else if (job.status === "failed") {
+          setError(job.errorText || `Scan failed for ${job.rootPath.split("/").pop()}`);
         }
-      } else if (trackedJobId !== null && scans.length > 0) {
-        setTrackedJobId(scans[0].id);
       }
+
+      // Live-refresh grid when files are being processed
+      if (anyRunning && maxProcessed > lastProcessedRef.current) {
+        lastProcessedRef.current = maxProcessed;
+        const liveLimit = Math.max(PAGE_SIZE, Math.min(items.length, MAX_ITEMS));
+        void runSearch(0, false, liveLimit);
+        void refreshRoots();
+      }
+
+      if (justCompleted.length > 0) {
+        lastProcessedRef.current = 0;
+        setCompletedJobs((prev) => [...prev, ...justCompleted]);
+        const stats = await ensureDatabase();
+        setDbStats(stats);
+        await refreshRoots();
+        await runSearch(0, false);
+      }
+
+      setTrackedJobIds(stillTracked);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -407,7 +421,7 @@ export default function App() {
         query,
         limit: limitOverride ?? PAGE_SIZE,
         offset,
-        minConfidence: minConfidence > 0 ? minConfidence : undefined,
+
         mediaTypes: selectedMediaType ? [selectedMediaType] : undefined,
         rootScope: selectedRootId ? [selectedRootId] : undefined
       });
@@ -450,12 +464,11 @@ export default function App() {
       const selected = await open({ directory: true, multiple: false, title: "Select folder to scan" });
       if (!selected) return;
       setError(null);
-      setNotice(null);
+      setCompletedJobs([]);
       const job = await startScan(selected as string);
-      setTrackedJobId(job.id);
-      setLatestJob(job);
+      setTrackedJobIds((prev) => [...prev, job.id]);
       lastProcessedRef.current = 0;
-      setNotice(`Scan started for ${job.rootPath}`);
+      setNotice(`Scan started for ${job.rootPath.split("/").pop()}`);
       await refreshRoots();
       await pollRuntimeAndScans();
     } catch (err) {
@@ -463,24 +476,24 @@ export default function App() {
     }
   }
 
-  async function onCancelScan() {
-    if (readOnly || !currentScan) return;
+  async function onCancelScan(scan: ScanJobStatus) {
+    if (readOnly) return;
     try {
-      await cancelScan(currentScan.id);
-      setNotice("Cancelling scan...");
+      await cancelScan(scan.id);
+      setNotice(`Cancelling scan for ${scan.rootPath.split("/").pop()}...`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function onResumeScan() {
-    if (readOnly || !currentScan) return;
+  async function onResumeScan(scan: ScanJobStatus) {
+    if (readOnly) return;
     try {
-      const job = await startScan(currentScan.rootPath);
-      setTrackedJobId(job.id);
-      setLatestJob(job);
+      const job = await startScan(scan.rootPath);
+      setTrackedJobIds((prev) => [...prev, job.id]);
+      setCompletedJobs([]);
       lastProcessedRef.current = 0;
-      setNotice(`Resuming scan for ${job.rootPath}`);
+      setNotice(`Resuming scan for ${job.rootPath.split("/").pop()}`);
       await pollRuntimeAndScans();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -489,15 +502,19 @@ export default function App() {
 
   async function onResumeAllInterrupted() {
     setShowResumeModal(false);
+    const newIds: number[] = [];
     for (const scan of activeScans.filter((s) => s.status === "interrupted")) {
       try {
         const job = await startScan(scan.rootPath);
-        setTrackedJobId(job.id);
-        setLatestJob(job);
+        newIds.push(job.id);
         lastProcessedRef.current = 0;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
+    }
+    if (newIds.length > 0) {
+      setTrackedJobIds((prev) => [...prev, ...newIds]);
+      setCompletedJobs([]);
     }
     await pollRuntimeAndScans();
   }
@@ -605,9 +622,16 @@ export default function App() {
     return i >= 0 ? relPath.slice(i + 1) : relPath;
   }
 
-  const scanProgress = currentScan?.totalFiles
-    ? Math.min(100, (currentScan.processedFiles / Math.max(1, currentScan.totalFiles)) * 100)
-    : 0;
+  function formatElapsed(startedAt: number, completedAt: number | null | undefined): string {
+    if (!completedAt) return "n/a";
+    const totalSecs = completedAt - startedAt;
+    if (totalSecs < 60) return `${totalSecs}s`;
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    if (mins < 60) return `${mins}m ${secs}s`;
+    const hours = Math.floor(mins / 60);
+    return `${hours}h ${mins % 60}m`;
+  }
 
   return (
     <div className="app-shell">
@@ -678,6 +702,50 @@ export default function App() {
             <div className="resume-actions">
               <button type="button" onClick={() => setShowResumeModal(false)}>Later</button>
               <button type="button" onClick={onResumeAllInterrupted}>Resume Now</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Scan Summary Modal ── */}
+      {showSummary && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="summary-modal">
+            <h2>Scan Complete</h2>
+            <table className="summary-table">
+              <thead>
+                <tr>
+                  <th>Folder</th>
+                  <th>Files</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completedJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td title={job.rootPath}>{job.rootPath.split("/").pop()}</td>
+                    <td>{job.processedFiles}</td>
+                    <td>{formatElapsed(job.startedAt, job.completedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td><strong>Total</strong></td>
+                  <td><strong>{completedJobs.reduce((s, j) => s + j.processedFiles, 0)}</strong></td>
+                  <td>
+                    <strong>
+                      {formatElapsed(
+                        Math.min(...completedJobs.map((j) => j.startedAt)),
+                        Math.max(...completedJobs.map((j) => j.completedAt ?? j.updatedAt))
+                      )}
+                    </strong>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+            <div className="summary-actions">
+              <button type="button" onClick={() => setCompletedJobs([])}>Close</button>
             </div>
           </div>
         </div>
@@ -788,7 +856,7 @@ export default function App() {
       )}
 
       {/* ── Main Area ── */}
-      <div className={`main-area${sidebarOpen ? "" : " sidebar-collapsed"}`}>
+      <div className="main-area">
         {/* ── Sidebar ── */}
         <aside className="sidebar">
           <div className="sidebar-section">
@@ -856,25 +924,31 @@ export default function App() {
             })}
           </div>
 
-          {/* Scan status for non-root-specific display */}
-          {currentScan && currentScan.status === "running" && (
-            <div className="sidebar-scan-progress">
-              <div className="sidebar-scan-progress-header">
-                {currentScan.processedFiles} / {currentScan.totalFiles} ({scanProgress.toFixed(1)}%)
+          {/* Running scans */}
+          {runningScans.map((scan) => {
+            const pct = scan.totalFiles
+              ? Math.min(100, (scan.processedFiles / Math.max(1, scan.totalFiles)) * 100)
+              : 0;
+            return (
+              <div key={scan.id} className="sidebar-scan-progress">
+                <div className="sidebar-scan-progress-header">
+                  {scan.rootPath.split("/").pop()}: {scan.processedFiles} / {scan.totalFiles} ({pct.toFixed(1)}%)
+                </div>
+                <progress value={pct} max={100} />
+                <div className="sidebar-scan-meta">
+                  +{scan.added} new, {scan.modified} mod, {scan.moved} moved
+                </div>
+                {!readOnly && <button type="button" onClick={() => onCancelScan(scan)}>Cancel</button>}
               </div>
-              <progress value={scanProgress} max={100} />
-              <div className="sidebar-scan-meta">
-                +{currentScan.added} new, {currentScan.modified} mod, {currentScan.moved} moved
-              </div>
-              {!readOnly && <button type="button" onClick={onCancelScan}>Cancel Scan</button>}
+            );
+          })}
+          {/* Interrupted scans */}
+          {interruptedScans.map((scan) => (
+            <div key={scan.id} className="sidebar-scan-progress">
+              <div>Interrupted: {scan.rootPath.split("/").pop()} at {scan.processedFiles} / {scan.totalFiles}</div>
+              {!readOnly && <button type="button" onClick={() => onResumeScan(scan)}>Resume</button>}
             </div>
-          )}
-          {currentScan && currentScan.status === "interrupted" && (
-            <div className="sidebar-scan-progress">
-              <div>Interrupted at {currentScan.processedFiles} / {currentScan.totalFiles}</div>
-              {!readOnly && <button type="button" onClick={onResumeScan}>Resume Scan</button>}
-            </div>
-          )}
+          ))}
 
           <div className="sidebar-spacer" />
 
@@ -883,20 +957,18 @@ export default function App() {
           <div className="sidebar-item">Roots: <span>{dbStats?.roots ?? "..."}</span></div>
 
           <div className="sidebar-section"><span>Actions</span></div>
-          <button type="button" className="sidebar-action-btn" onClick={onCleanupOllama}>Unload Models</button>
+          <button
+            type="button"
+            className="sidebar-action-btn"
+            onClick={onCleanupOllama}
+            disabled={isScanning || (runtime?.loadedModels?.length ?? 0) === 0}
+            title={isScanning ? "Cannot unload during scan" : (runtime?.loadedModels?.length ?? 0) === 0 ? "No models loaded" : "Unload all loaded models"}
+          >Unload Models</button>
         </aside>
 
         {/* ── Content ── */}
         <div className="content">
           <div className="toolbar">
-            <button
-              type="button"
-              className="toolbar-toggle"
-              onClick={() => setSidebarOpen((v) => !v)}
-              aria-label="Toggle sidebar"
-            >
-              &#9776;
-            </button>
             <input
               type="search"
               placeholder="Search images..."
@@ -915,17 +987,6 @@ export default function App() {
                 </option>
               ))}
             </select>
-            <label className="confidence-wrap">
-              Min conf
-              <input
-                type="number"
-                min={0}
-                max={1}
-                step={0.05}
-                value={minConfidence}
-                onChange={(e) => setMinConfidence(Number(e.target.value))}
-              />
-            </label>
           </div>
 
           <div className="content-body">
@@ -998,10 +1059,8 @@ export default function App() {
             : "n/a"}
         </span>
         <span>Files: {dbStats?.files ?? "..."}</span>
-        {isScanning && currentScan && (
-          <span>
-            Scanning: {currentScan.processedFiles}/{currentScan.totalFiles} ({scanProgress.toFixed(0)}%)
-          </span>
+        {isScanning && (
+          <span>Scanning: {runningScans.length} active job(s)</span>
         )}
         {selectedIndices.size > 0 && (
           <span>{selectedIndices.size} selected</span>
