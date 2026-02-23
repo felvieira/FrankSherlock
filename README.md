@@ -22,7 +22,27 @@ Local-only, AI-powered image cataloging and search for your NAS. Point it at a d
 
 The UI is loosely inspired by VSCode: custom titlebar, collapsible sidebar, thumbnail grid, media type filters, confidence slider, preview overlay, and automatic light/dark theme.
 
-## Requirements
+## Installing from pre-built binaries
+
+Download the latest release from the [Releases page](https://github.com/akitaonrails/FrankSherlock/releases): AppImage for Linux, DMG for macOS (Apple Silicon), MSI for Windows.
+
+You also need [Ollama](https://ollama.com) installed and running (`ollama serve`). On first launch, the app prompts you to download the vision model if it isn't installed yet.
+
+### macOS: "app is damaged" error
+
+The release binaries are not signed with an Apple Developer certificate. macOS Gatekeeper will quarantine the app and show a misleading "damaged and can't be opened" error. To fix this, open Terminal and run:
+
+```bash
+xattr -cr /Applications/Frank\ Sherlock.app
+```
+
+Then open the app normally. Alternatively, right-click the `.app` and choose "Open" (instead of double-clicking) to bypass Gatekeeper on the first launch.
+
+### Windows: SmartScreen warning
+
+The MSI installer is not signed with a code-signing certificate. Windows SmartScreen may block it with a "Windows protected your PC" warning. Click "More info" and then "Run anyway" to proceed with installation.
+
+## Requirements (for building from source)
 
 - Linux, macOS, or Windows
 - [Ollama](https://ollama.com) installed and running (`ollama serve`)
@@ -30,19 +50,32 @@ The UI is loosely inspired by VSCode: custom titlebar, collapsible sidebar, thum
 - Node.js 20+
 - Rust 1.77+
 
-## Quick start
+## Building from source
 
 ```bash
-# 1. Start Ollama
-ollama serve
+# 1. Download the PDFium library for your platform
+cd sherlock/desktop/src-tauri
+bash scripts/download-pdfium.sh
 
-# 2. Build and run
+# 2. Install frontend dependencies
 cd sherlock/desktop
 npm install
+
+# 3. Start Ollama (in a separate terminal)
+ollama serve
+
+# 4. Run in dev mode
 npm run tauri:dev
 ```
 
-On first launch, the app prompts you to download `qwen2.5vl:7b` if it isn't installed yet. Click "Add Folder..." in the sidebar to pick a directory and start indexing.
+To produce a release binary (AppImage/DMG/MSI):
+
+```bash
+cd sherlock/desktop
+npm run tauri:build
+```
+
+Output will be in `sherlock/desktop/src-tauri/target/release/bundle/`.
 
 ### Wayland/NVIDIA workaround
 
@@ -52,23 +85,14 @@ If the WebKit window is blank on Wayland with NVIDIA drivers:
 WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 ```
 
-## Building
-
-```bash
-cd sherlock/desktop
-npm run tauri:build
-```
-
-The AppImage will be at `sherlock/desktop/src-tauri/target/release/bundle/appimage/`.
-
 ## Tests
 
 ```bash
-# Rust (69 tests)
+# Rust (166 tests)
 cd sherlock/desktop/src-tauri
 cargo test
 
-# Frontend (84 tests)
+# Frontend (172 tests)
 cd sherlock/desktop
 npm run test
 ```

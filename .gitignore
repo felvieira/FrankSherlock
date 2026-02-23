@@ -34,3 +34,6 @@ uv.lock
 .cargo-local/
 .npm-local/
 .cache-local/
+
+# Blog posts (drafts, not shipped)
+posts/
