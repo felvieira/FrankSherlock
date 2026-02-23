@@ -140,7 +140,7 @@ export default function PreviewModal({
           </div>
         )}
 
-        {/* Image collage (2-4 images, no PDFs) */}
+        {/* Image collage (2-10 images, no PDFs) */}
         {mode === "image-collage" && (
           <div className="preview-collage" data-count={images.length}>
             {images.map((item) => (

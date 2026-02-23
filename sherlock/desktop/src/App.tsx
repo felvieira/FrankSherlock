@@ -283,7 +283,7 @@ export default function App() {
   const showSummary = scanManager.trackedJobIds.length === 0 && scanManager.completedJobs.length > 0;
 
   const previewItems: SearchItem[] = previewOpen
-    ? [...selectedIndices].sort((a, b) => a - b).slice(0, 4).filter(i => i < items.length).map(i => items[i])
+    ? [...selectedIndices].sort((a, b) => a - b).slice(0, 10).filter(i => i < items.length).map(i => items[i])
     : [];
   const singlePreviewIndex = selectedIndices.size === 1 ? [...selectedIndices][0] : null;
 

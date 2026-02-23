@@ -96,10 +96,28 @@
   min-height: 0;
   overflow: hidden;
 }
+/* 2 images: 2 columns */
 .preview-collage[data-count="2"] { grid-template-columns: 1fr 1fr; }
+/* 3 images: 2x2 grid, last spans full width */
 .preview-collage[data-count="3"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 .preview-collage[data-count="3"] .preview-collage-cell:last-child { grid-column: 1 / -1; }
+/* 4 images: 2x2 grid */
 .preview-collage[data-count="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+/* 5–6 images: 3 columns */
+.preview-collage[data-count="5"],
+.preview-collage[data-count="6"] { grid-template-columns: 1fr 1fr 1fr; }
+/* 5 images: last row has 2, center the row */
+.preview-collage[data-count="5"] .preview-collage-cell:nth-child(4) { grid-column: 1 / 2; }
+/* 7–9 images: 3 columns */
+.preview-collage[data-count="7"],
+.preview-collage[data-count="8"],
+.preview-collage[data-count="9"] { grid-template-columns: 1fr 1fr 1fr; }
+/* 7 images: last item centered */
+.preview-collage[data-count="7"] .preview-collage-cell:last-child { grid-column: 2 / 3; }
+/* 8 images: last 2 items centered — first of the pair starts at col 1 */
+.preview-collage[data-count="8"] .preview-collage-cell:nth-child(7) { grid-column: 1 / 2; }
+/* 10 images: 5 columns x 2 rows */
+.preview-collage[data-count="10"] { grid-template-columns: repeat(5, 1fr); grid-template-rows: 1fr 1fr; }
 
 .preview-collage-cell {
   display: grid;
