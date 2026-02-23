@@ -7,10 +7,24 @@ type Props = {
   setup: SetupStatus;
   onRecheck: () => void;
   onDownload: () => void;
+  onSetupOcr: () => void;
   onClose?: () => void;
 };
 
-export default function SetupModal({ setup, onRecheck, onDownload, onClose }: Props) {
+export default function SetupModal({ setup, onRecheck, onDownload, onSetupOcr, onClose }: Props) {
+  const ocrStatusText = setup.suryaVenvOk
+    ? `Ready${setup.pythonVersion ? ` (Python ${setup.pythonVersion})` : ""}`
+    : setup.systemPythonFound
+      ? "Python found, needs setup"
+      : setup.pythonAvailable
+        ? "Python found, venv issue"
+        : "Not available";
+
+  const canSetupOcr =
+    setup.systemPythonFound &&
+    !setup.suryaVenvOk &&
+    setup.venvProvision.status !== "running";
+
   return (
     <ModalOverlay>
       <div className="modal-base setup-modal">
@@ -31,13 +45,7 @@ export default function SetupModal({ setup, onRecheck, onDownload, onClose }: Pr
           </div>
           <div>
             <strong>OCR (Surya)</strong>
-            <p>
-              {setup.suryaVenvOk
-                ? `Ready${setup.pythonVersion ? ` (Python ${setup.pythonVersion})` : ""}`
-                : setup.pythonAvailable
-                  ? "Python found, venv issue"
-                  : "Not available"}
-            </p>
+            <p>{ocrStatusText}</p>
           </div>
         </div>
         <ul className="setup-instructions">
@@ -50,6 +58,15 @@ export default function SetupModal({ setup, onRecheck, onDownload, onClose }: Pr
           <span>{setup.download.progressPct.toFixed(1)}%</span>
         </div>
         <p className="setup-download-text">{setup.download.message}</p>
+        {setup.venvProvision.status !== "idle" && (
+          <>
+            <div className="progress-wrap">
+              <progress value={setup.venvProvision.progressPct} max={100} />
+              <span>{setup.venvProvision.progressPct.toFixed(1)}%</span>
+            </div>
+            <p className="setup-download-text">{setup.venvProvision.message}</p>
+          </>
+        )}
         <div className="modal-actions">
           <button type="button" onClick={onRecheck}>Recheck</button>
           <button
@@ -63,6 +80,16 @@ export default function SetupModal({ setup, onRecheck, onDownload, onClose }: Pr
           >
             {setup.download.status === "running" ? "Downloading..." : "Download model"}
           </button>
+          {canSetupOcr && (
+            <button type="button" onClick={onSetupOcr}>
+              Setup OCR
+            </button>
+          )}
+          {setup.venvProvision.status === "running" && (
+            <button type="button" disabled>
+              Setting up OCR...
+            </button>
+          )}
           {onClose && <button type="button" onClick={onClose}>Close</button>}
         </div>
       </div>

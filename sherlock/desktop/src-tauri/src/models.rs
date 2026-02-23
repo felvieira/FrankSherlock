@@ -207,6 +207,15 @@ pub struct SetupDownloadStatus {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct VenvProvisionStatus {
+    pub status: String,
+    pub step: String,
+    pub progress_pct: f32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetupStatus {
     pub is_ready: bool,
     pub ollama_available: bool,
@@ -220,6 +229,8 @@ pub struct SetupStatus {
     pub recommended_model: String,
     pub model_tier: String,
     pub model_selection_reason: String,
+    pub system_python_found: bool,
+    pub venv_provision: VenvProvisionStatus,
 }
 
 #[derive(Debug, Clone)]

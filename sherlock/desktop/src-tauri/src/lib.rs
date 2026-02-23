@@ -21,7 +21,7 @@ use error::AppError;
 use models::{
     Album, DeleteFilesResult, HealthCheckOutcome, HealthStatus, PurgeResult, RenameFileResult,
     RootInfo, RuntimeStatus, ScanJobStatus, SearchRequest, SearchResponse, SetupDownloadStatus,
-    SetupStatus, SmartFolder,
+    SetupStatus, SmartFolder, VenvProvisionStatus,
 };
 use tauri::Manager;
 use tauri::State;
@@ -33,6 +33,8 @@ struct AppState {
     gpu_info: platform::gpu::GpuInfo,
     running_scan_jobs: Arc<Mutex<HashSet<i64>>>,
     setup_download: Arc<Mutex<llm::DownloadState>>,
+    venv_provision: Arc<Mutex<platform::python::VenvProvisionState>>,
+    cached_system_python: Option<std::path::PathBuf>,
     cancel_flags: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     cli_folder_path: Option<String>,
 }
@@ -152,6 +154,71 @@ fn start_setup_download(state: State<'_, AppState>) -> Result<SetupDownloadStatu
         .setup_download
         .lock()
         .expect("setup download mutex poisoned")
+        .as_view())
+}
+
+#[tauri::command]
+fn start_venv_provision(state: State<'_, AppState>) -> Result<VenvProvisionStatus, String> {
+    // If already running, return current status
+    {
+        let current = state
+            .venv_provision
+            .lock()
+            .expect("venv provision mutex poisoned");
+        if current.status == "running" {
+            return Ok(current.as_view());
+        }
+    }
+
+    let system_python = state
+        .cached_system_python
+        .clone()
+        .ok_or_else(|| "No Python 3 found on this system. Install Python 3 first.".to_string())?;
+
+    // Check if venv already works
+    let python_status =
+        platform::python::check_python_available(&state.paths.surya_venv_dir);
+    if python_status.available {
+        let venv_python = platform::python::python_venv_binary(&state.paths.surya_venv_dir);
+        let surya_ok = std::process::Command::new(&venv_python)
+            .args(["-c", "import surya"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if surya_ok {
+            let mut current = state
+                .venv_provision
+                .lock()
+                .expect("venv provision mutex poisoned");
+            current.status = "completed".to_string();
+            current.progress_pct = 100.0;
+            current.message = "Surya OCR is already installed.".to_string();
+            return Ok(current.as_view());
+        }
+    }
+
+    // Set running state
+    {
+        let mut current = state
+            .venv_provision
+            .lock()
+            .expect("venv provision mutex poisoned");
+        current.status = "running".to_string();
+        current.step = "starting".to_string();
+        current.progress_pct = 0.0;
+        current.message = "Starting OCR setup...".to_string();
+    }
+
+    let provision_state = state.venv_provision.clone();
+    let venv_dir = state.paths.surya_venv_dir.clone();
+    tauri::async_runtime::spawn(async move {
+        platform::python::run_venv_provision(provision_state, system_python, venv_dir).await;
+    });
+
+    Ok(state
+        .venv_provision
+        .lock()
+        .expect("venv provision mutex poisoned")
         .as_view())
 }
 
@@ -511,42 +578,52 @@ fn compute_setup_status(app_state: &AppState) -> SetupStatus {
     };
 
     // Surya/Python is a soft requirement (OCR enrichment)
-    if !python_status.venv_exists {
-        match os {
-            platform::OsKind::Linux => {
-                instructions.push(
-                    "OCR (optional): Python venv not found. Install Python 3 \
-                     (e.g. sudo apt install python3 python3-venv) then relaunch."
-                        .to_string(),
-                );
-            }
-            platform::OsKind::MacOS => {
-                instructions.push(
-                    "OCR (optional): Python venv not found. Install Python 3 \
-                     (e.g. brew install python@3) then relaunch."
-                        .to_string(),
-                );
-            }
-            platform::OsKind::Windows => {
-                instructions.push(
-                    "OCR (optional): Python venv not found. Install Python 3 \
-                     from python.org/downloads, then relaunch."
-                        .to_string(),
-                );
+    let system_python_found = app_state.cached_system_python.is_some();
+    let surya_venv_ok = python_status.venv_exists && python_status.available;
+
+    if !surya_venv_ok {
+        if system_python_found {
+            instructions.push(
+                "OCR (optional): Click 'Setup OCR' to auto-configure Surya OCR."
+                    .to_string(),
+            );
+        } else if !python_status.venv_exists || !python_status.available {
+            match os {
+                platform::OsKind::Linux => {
+                    instructions.push(
+                        "OCR (optional): Python 3 not found. Install Python 3 \
+                         (e.g. sudo apt install python3 python3-venv) then relaunch."
+                            .to_string(),
+                    );
+                }
+                platform::OsKind::MacOS => {
+                    instructions.push(
+                        "OCR (optional): Python 3 not found. Install Python 3 \
+                         (e.g. brew install python@3) then relaunch."
+                            .to_string(),
+                    );
+                }
+                platform::OsKind::Windows => {
+                    instructions.push(
+                        "OCR (optional): Python 3 not found. Install Python 3 \
+                         from python.org/downloads, then relaunch."
+                            .to_string(),
+                    );
+                }
             }
         }
-    } else if !python_status.available {
-        instructions.push(
-            "OCR: Python interpreter not working in Surya venv. \
-             Try deleting the surya_venv directory and relaunching."
-                .to_string(),
-        );
     }
 
     let download = app_state
         .setup_download
         .lock()
         .expect("setup download mutex poisoned")
+        .as_view();
+
+    let venv_provision = app_state
+        .venv_provision
+        .lock()
+        .expect("venv provision mutex poisoned")
         .as_view();
 
     SetupStatus {
@@ -558,10 +635,12 @@ fn compute_setup_status(app_state: &AppState) -> SetupStatus {
         download,
         python_available: python_status.available,
         python_version: python_status.version,
-        surya_venv_ok: python_status.venv_exists && python_status.available,
+        surya_venv_ok,
         recommended_model: model_tag.to_string(),
         model_tier: model_tier.as_str().to_string(),
         model_selection_reason: model_reason,
+        system_python_found,
+        venv_provision,
     }
 }
 
@@ -735,6 +814,7 @@ pub fn run() {
         .expect("failed to initialize application paths/database");
 
     let gpu_info = platform::gpu::detect_gpu_memory();
+    let cached_system_python = platform::python::find_system_python();
 
     let cli_folder_path: Option<String> = std::env::args().nth(1).and_then(|raw| {
         match config::expand_and_canonicalize(&raw) {
@@ -752,6 +832,8 @@ pub fn run() {
         gpu_info,
         running_scan_jobs: Arc::new(Mutex::new(HashSet::new())),
         setup_download: Arc::new(Mutex::new(llm::DownloadState::idle())),
+        venv_provision: Arc::new(Mutex::new(platform::python::VenvProvisionState::idle())),
+        cached_system_python,
         cancel_flags: Arc::new(Mutex::new(HashMap::new())),
         cli_folder_path,
     };
@@ -778,6 +860,7 @@ pub fn run() {
             parse_query_nl,
             get_setup_status,
             start_setup_download,
+            start_venv_provision,
             search_images,
             start_scan,
             get_scan_job,

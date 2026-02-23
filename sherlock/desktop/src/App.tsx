@@ -542,7 +542,7 @@ export default function App() {
     <div className="app-shell">
       {/* ── Modals ── */}
       {setup && (!setup.isReady || forceShowSetup) && (
-        <SetupModal setup={setup} onRecheck={scanManager.onRecheckSetup} onDownload={scanManager.onSetupDownload} onClose={forceShowSetup ? () => setForceShowSetup(false) : undefined} />
+        <SetupModal setup={setup} onRecheck={scanManager.onRecheckSetup} onDownload={scanManager.onSetupDownload} onSetupOcr={scanManager.onSetupOcr} onClose={forceShowSetup ? () => setForceShowSetup(false) : undefined} />
       )}
       {showResumeModal && (
         <ResumeModal

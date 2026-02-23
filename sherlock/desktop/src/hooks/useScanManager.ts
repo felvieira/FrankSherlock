@@ -11,6 +11,7 @@ import {
   listRoots,
   startScan,
   startSetupDownload,
+  startVenvProvision,
 } from "../api";
 import type {
   DbStats,
@@ -237,6 +238,15 @@ export function useScanManager(cb: ScanManagerCallbacks) {
     }
   }
 
+  async function onSetupOcr() {
+    try {
+      await startVenvProvision();
+      await pollRuntimeAndScans();
+    } catch (err) {
+      cb.setError(errorMessage(err));
+    }
+  }
+
   async function onRecheckSetup() {
     await pollRuntimeAndScans();
   }
@@ -257,6 +267,7 @@ export function useScanManager(cb: ScanManagerCallbacks) {
     onResumeScan,
     onResumeAllInterrupted,
     onSetupDownload,
+    onSetupOcr,
     onRecheckSetup,
     refreshRoots,
     addTrackedJobId,

@@ -15,7 +15,8 @@ import type {
   SetupStatus,
   SmartFolder,
   SearchRequest,
-  SearchResponse
+  SearchResponse,
+  VenvProvisionStatus,
 } from "./types";
 
 export async function appHealth(): Promise<HealthStatus> {
@@ -60,6 +61,10 @@ export async function getSetupStatus(): Promise<SetupStatus> {
 
 export async function startSetupDownload(): Promise<SetupDownloadStatus> {
   return invoke<SetupDownloadStatus>("start_setup_download");
+}
+
+export async function startVenvProvision(): Promise<VenvProvisionStatus> {
+  return invoke<VenvProvisionStatus>("start_venv_provision");
 }
 
 export async function cancelScan(jobId: number): Promise<boolean> {

@@ -94,6 +94,13 @@ export type SetupDownloadStatus = {
   message: string;
 };
 
+export type VenvProvisionStatus = {
+  status: "idle" | "running" | "completed" | "failed";
+  step: string;
+  progressPct: number;
+  message: string;
+};
+
 export type SetupStatus = {
   isReady: boolean;
   ollamaAvailable: boolean;
@@ -107,6 +114,8 @@ export type SetupStatus = {
   recommendedModel: string;
   modelTier: string;
   modelSelectionReason: string;
+  systemPythonFound: boolean;
+  venvProvision: VenvProvisionStatus;
 };
 
 export type HealthStatus = {

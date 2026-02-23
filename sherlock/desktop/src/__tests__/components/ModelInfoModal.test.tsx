@@ -29,6 +29,8 @@ const mockSetup: SetupStatus = {
   recommendedModel: "qwen2.5vl:7b",
   modelTier: "medium",
   modelSelectionReason: "NVIDIA GPU (24 GiB VRAM) — 7b is optimal",
+  systemPythonFound: true,
+  venvProvision: { status: "idle", step: "", progressPct: 0, message: "No OCR setup in progress" },
 };
 
 describe("ModelInfoModal", () => {
