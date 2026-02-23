@@ -24,6 +24,10 @@ const SUPPORTED_EXTS: [&str; 9] = [
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".pdf",
 ];
 
+/// Skip tiny images likely to be web icons, spacer GIFs, favicons, etc.
+/// 10 KB is roughly a 64x64 PNG or any icon-sized image.
+const MIN_IMAGE_SIZE_BYTES: u64 = 10_240;
+
 /// File classification state determined during incremental discovery.
 #[derive(Debug)]
 enum FileStatus {
@@ -400,6 +404,14 @@ fn collect_image_probes_incremental(
         }
 
         let metadata = std::fs::metadata(path)?;
+        // Skip tiny images (icons, spacer GIFs, favicons) but not PDFs
+        let ext_lower = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if ext_lower != "pdf" && metadata.len() < MIN_IMAGE_SIZE_BYTES {
+            continue;
+        }
         let rel = path
             .strip_prefix(root)
             .map(|p| normalize_rel_path(&p.to_string_lossy()))
@@ -544,6 +556,13 @@ mod tests {
     use super::*;
     use crate::db;
 
+    /// Write a dummy file large enough to pass MIN_IMAGE_SIZE_BYTES.
+    fn write_test_image(path: &std::path::Path, seed: u8) {
+        let mut f = File::create(path).expect("create test image");
+        let data = vec![seed; MIN_IMAGE_SIZE_BYTES as usize];
+        f.write_all(&data).expect("write test image");
+    }
+
     fn make_scan_context(db_path: &Path) -> ScanContext {
         let tmp = tempfile::tempdir().expect("tempdir");
         ScanContext {
@@ -565,8 +584,7 @@ mod tests {
         db::init_database(&db_path).expect("init");
 
         let image_a = root_dir.path().join("a.jpg");
-        let mut f = File::create(&image_a).expect("create");
-        f.write_all(b"same-binary").expect("write");
+        write_test_image(&image_a, 0xAA);
 
         let first_job = start_or_resume_scan_job(&db_path, root_dir.path().to_str().expect("str"))
             .expect("job");
@@ -589,8 +607,7 @@ mod tests {
 
         // Create a file
         let img = root_dir.path().join("test.jpg");
-        let mut f = File::create(&img).expect("create");
-        f.write_all(b"image-data-here").expect("write");
+        write_test_image(&img, 0xBB);
 
         let metadata = std::fs::metadata(&img).expect("meta");
         let mtime_ns = metadata
@@ -667,8 +684,7 @@ mod tests {
         let root_dir = tempfile::tempdir().expect("tempdir");
 
         let img = root_dir.path().join("new.jpg");
-        let mut f = File::create(&img).expect("create");
-        f.write_all(b"new-image-data").expect("write");
+        write_test_image(&img, 0xCC);
 
         let existing_by_path: HashMap<String, ExistingFile> = HashMap::new();
         let probes =
@@ -683,19 +699,13 @@ mod tests {
 
         // Create files in parent root
         let parent_img = root_dir.path().join("parent.jpg");
-        File::create(&parent_img)
-            .expect("create")
-            .write_all(b"parent-data")
-            .expect("write");
+        write_test_image(&parent_img, 0xDD);
 
         // Create child root subdir with a file
         let child_dir = root_dir.path().join("Photos");
         std::fs::create_dir_all(&child_dir).expect("mkdir");
         let child_img = child_dir.join("child.jpg");
-        File::create(&child_img)
-            .expect("create")
-            .write_all(b"child-data")
-            .expect("write");
+        write_test_image(&child_img, 0xEE);
 
         let existing_by_path: HashMap<String, ExistingFile> = HashMap::new();
 
@@ -712,5 +722,47 @@ mod tests {
                 .expect("probes filtered");
         assert_eq!(probes_filtered.len(), 1);
         assert_eq!(probes_filtered[0].filename, "parent.jpg");
+    }
+
+    #[test]
+    fn skips_tiny_images_but_not_pdfs() {
+        let root_dir = tempfile::tempdir().expect("tempdir");
+
+        // Tiny GIF (icon-sized) — should be skipped
+        let tiny_gif = root_dir.path().join("spacer.gif");
+        File::create(&tiny_gif)
+            .expect("create")
+            .write_all(&[0u8; 100])
+            .expect("write");
+
+        // Tiny PNG — should be skipped
+        let tiny_png = root_dir.path().join("favicon.png");
+        File::create(&tiny_png)
+            .expect("create")
+            .write_all(&[0u8; 5_000])
+            .expect("write");
+
+        // Normal-sized JPG — should be included
+        let normal_jpg = root_dir.path().join("photo.jpg");
+        write_test_image(&normal_jpg, 0xFF);
+
+        // Tiny PDF — should still be included (PDFs exempt)
+        let tiny_pdf = root_dir.path().join("note.pdf");
+        File::create(&tiny_pdf)
+            .expect("create")
+            .write_all(&[0u8; 500])
+            .expect("write");
+
+        let existing_by_path: HashMap<String, ExistingFile> = HashMap::new();
+        let probes =
+            collect_image_probes_incremental(root_dir.path(), &existing_by_path, &[])
+                .expect("probes");
+
+        let filenames: Vec<&str> = probes.iter().map(|p| p.filename.as_str()).collect();
+        assert!(filenames.contains(&"photo.jpg"));
+        assert!(filenames.contains(&"note.pdf"));
+        assert!(!filenames.contains(&"spacer.gif"));
+        assert!(!filenames.contains(&"favicon.png"));
+        assert_eq!(probes.len(), 2);
     }
 }
