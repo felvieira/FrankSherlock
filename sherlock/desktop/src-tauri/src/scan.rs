@@ -166,8 +166,6 @@ fn run_scan_job_internal(
     let mut last_cursor: Option<String> = job.cursor_rel_path.clone();
     let mut unchanged_batch: Vec<String> = Vec::new();
     const UNCHANGED_BATCH_SIZE: usize = 200;
-    const CHECKPOINT_INTERVAL: u64 = 50;
-
     db::checkpoint_scan_job(
         db_path,
         job_id,
@@ -297,19 +295,17 @@ fn run_scan_job_internal(
 
                         processed_files += 1;
                         last_cursor = Some(probe.rel_path.clone());
-                        if processed_files % CHECKPOINT_INTERVAL == 0 {
-                            db::checkpoint_scan_job(
-                                db_path,
-                                job_id,
-                                total_files,
-                                processed_files,
-                                last_cursor.as_deref(),
-                                added,
-                                modified,
-                                moved,
-                                unchanged,
-                            )?;
-                        }
+                        db::checkpoint_scan_job(
+                            db_path,
+                            job_id,
+                            total_files,
+                            processed_files,
+                            last_cursor.as_deref(),
+                            added,
+                            modified,
+                            moved,
+                            unchanged,
+                        )?;
                         continue;
                     }
                 }
@@ -341,19 +337,17 @@ fn run_scan_job_internal(
 
         processed_files += 1;
         last_cursor = Some(probe.rel_path.clone());
-        if processed_files % CHECKPOINT_INTERVAL == 0 || i == probes.len() - 1 {
-            db::checkpoint_scan_job(
-                db_path,
-                job_id,
-                total_files,
-                processed_files,
-                last_cursor.as_deref(),
-                added,
-                modified,
-                moved,
-                unchanged,
-            )?;
-        }
+        db::checkpoint_scan_job(
+            db_path,
+            job_id,
+            total_files,
+            processed_files,
+            last_cursor.as_deref(),
+            added,
+            modified,
+            moved,
+            unchanged,
+        )?;
     }
 
     // Flush remaining unchanged batch
