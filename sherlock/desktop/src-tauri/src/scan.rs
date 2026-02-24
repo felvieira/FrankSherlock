@@ -92,7 +92,15 @@ fn run_scan_job_internal(
         .collect();
 
     // Phase 1: Load existing DB records
+    let db_load_start = Instant::now();
     let existing = db::load_existing_files(db_path, job.root_id)?;
+    let db_load_ms = db_load_start.elapsed().as_millis();
+    log::info!(
+        "Scan job {}: loaded {} existing records from DB in {}ms",
+        job_id,
+        existing.len(),
+        db_load_ms,
+    );
     let existing_by_path: HashMap<String, ExistingFile> = existing
         .iter()
         .map(|f| (f.rel_path.clone(), f.clone()))
@@ -503,6 +511,9 @@ fn collect_image_probes_incremental(
 ) -> AppResult<Vec<FileProbe>> {
     let mut probes = Vec::new();
     let mut discovered: u64 = 0;
+    let mut walk_entries: u64 = 0;
+    let mut fingerprint_count: u64 = 0;
+    let mut fingerprint_ms: u128 = 0;
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
@@ -515,6 +526,8 @@ fn collect_image_probes_incremental(
         })
         .filter_map(|entry| entry.ok())
     {
+        walk_entries += 1;
+
         // Check cancel flag during discovery
         if let Some(flag) = cancel_flag {
             if flag.load(Ordering::Relaxed) {
@@ -530,7 +543,15 @@ fn collect_image_probes_incremental(
             continue;
         }
 
-        let metadata = std::fs::metadata(path)?;
+        // Use entry.metadata() to avoid a redundant stat() syscall —
+        // WalkDir already called lstat() during the walk.
+        let metadata = entry.metadata().map_err(|e| {
+            crate::error::AppError::Config(format!(
+                "metadata for {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
         // Skip tiny images (icons, spacer GIFs, favicons) but not PDFs
         let ext_lower = path
             .extension()
@@ -569,7 +590,10 @@ fn collect_image_probes_incremental(
                 });
             } else {
                 // Modified: need new fingerprint
+                let fp_start = Instant::now();
                 let fingerprint = fingerprint_file(path, metadata.len())?;
+                fingerprint_ms += fp_start.elapsed().as_millis();
+                fingerprint_count += 1;
                 probes.push(FileProbe {
                     rel_path: rel,
                     abs_path: path.display().to_string(),
@@ -582,7 +606,10 @@ fn collect_image_probes_incremental(
             }
         } else {
             // New file: compute fingerprint
+            let fp_start = Instant::now();
             let fingerprint = fingerprint_file(path, metadata.len())?;
+            fingerprint_ms += fp_start.elapsed().as_millis();
+            fingerprint_count += 1;
             probes.push(FileProbe {
                 rel_path: rel,
                 abs_path: path.display().to_string(),
@@ -599,7 +626,19 @@ fn collect_image_probes_incremental(
             let _ = db::update_discovery_progress(db_path, job_id, discovered);
         }
     }
+    let sort_start = Instant::now();
     probes.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    let sort_ms = sort_start.elapsed().as_millis();
+
+    log::info!(
+        "Discovery breakdown: {} walkdir entries, {} supported files, \
+         {} fingerprinted in {}ms, sort {}ms",
+        walk_entries,
+        discovered,
+        fingerprint_count,
+        fingerprint_ms,
+        sort_ms,
+    );
     Ok(probes)
 }
 
