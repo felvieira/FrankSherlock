@@ -1,5 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { SearchItem } from "../../types";
+import { fileName } from "../../utils/format";
+import { formatBytes } from "../../utils/format";
 import PdfViewer from "../Content/PdfViewer";
 import ModalOverlay from "./ModalOverlay";
 import "./PreviewModal.css";
@@ -143,12 +145,15 @@ export default function PreviewModal({
         {/* Image collage (2-10 images, no PDFs) */}
         {mode === "image-collage" && (
           <div className="preview-collage" data-count={images.length}>
-            {images.map((item) => (
+            {images.map((item, idx) => (
               <div key={item.id} className="preview-collage-cell">
                 <img
                   src={convertFileSrc(item.absPath)}
                   alt={item.relPath}
                 />
+                {images.length > 1 && (
+                  <span className="preview-collage-label">{idx + 1}</span>
+                )}
               </div>
             ))}
           </div>
@@ -169,10 +174,26 @@ export default function PreviewModal({
                   Confidence: {previewItems[0].confidence.toFixed(2)}
                 </span>
                 <span>
-                  {(previewItems[0].sizeBytes / 1024).toFixed(0)} KB
+                  {formatBytes(previewItems[0].sizeBytes)}
                 </span>
               </div>
             </>
+          ) : previewItems.length <= 10 && singlePreviewIndex === null ? (
+            <div className="preview-compare-list">
+              {previewItems.map((item, idx) => (
+                <div key={item.id} className="preview-compare-row">
+                  <span className="preview-compare-num">{idx + 1}</span>
+                  <span className="preview-compare-name" title={item.absPath}>
+                    {fileName(item.relPath)}
+                  </span>
+                  <span className="preview-compare-meta">{formatBytes(item.sizeBytes)}</span>
+                  <span className="preview-compare-meta">{item.mediaType}</span>
+                  <span className="preview-compare-meta">
+                    {new Date(item.mtimeNs / 1_000_000).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : (
             <h3>{selectedCount} files selected</h3>
           )}

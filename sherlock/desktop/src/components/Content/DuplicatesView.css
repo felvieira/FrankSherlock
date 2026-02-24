@@ -229,7 +229,7 @@
   min-width: 30px;
 }
 
-/* ── Group type badges ──────────────────────────────────── */
+/* ── Confidence tier badges ─────────────────────────────── */
 .dup-type-badge {
   flex-shrink: 0;
   padding: 1px 6px;
@@ -240,28 +240,74 @@
   letter-spacing: 0.03em;
 }
 
-.dup-type-badge-exact {
-  background: rgba(0, 122, 204, 0.2);
-  color: var(--accent);
+/* Green — exact match, safe to delete */
+.dup-type-badge-safe {
+  background: rgba(56, 161, 105, 0.2);
+  color: #38a169;
 }
 
-.dup-type-badge-near {
-  background: rgba(217, 158, 43, 0.2);
-  color: #d49e2b;
+/* Yellow — high-confidence near-duplicate */
+.dup-type-badge-likely {
+  background: rgba(214, 158, 46, 0.2);
+  color: #d69e2e;
 }
 
-/* Near-group amber border */
-.dup-group[data-group-type="near"] {
-  border-color: rgba(217, 158, 43, 0.4);
+/* Red — low-confidence near-duplicate, needs visual check */
+.dup-type-badge-uncertain {
+  background: rgba(229, 62, 62, 0.2);
+  color: #e53e3e;
+}
+
+/* ── Confidence tier group backgrounds ─────────────────── */
+.dup-group-safe {
+  border-color: rgba(56, 161, 105, 0.35);
+  background: rgba(56, 161, 105, 0.05);
+}
+
+.dup-group-safe > .dup-group-header {
+  background: rgba(56, 161, 105, 0.08);
+}
+
+.dup-group-likely {
+  border-color: rgba(214, 158, 46, 0.35);
+  background: rgba(214, 158, 46, 0.05);
+}
+
+.dup-group-likely > .dup-group-header {
+  background: rgba(214, 158, 46, 0.08);
+}
+
+.dup-group-uncertain {
+  border-color: rgba(229, 62, 62, 0.35);
+  background: rgba(229, 62, 62, 0.05);
+}
+
+.dup-group-uncertain > .dup-group-header {
+  background: rgba(229, 62, 62, 0.08);
 }
 
 .dup-similarity-label {
-  color: #d49e2b;
+  font-weight: 500;
+}
+
+.dup-group-likely .dup-similarity-label {
+  color: #d69e2e;
+}
+
+.dup-group-uncertain .dup-similarity-label {
+  color: #e53e3e;
 }
 
 .dup-file-similarity {
-  color: #d49e2b;
   font-weight: 500;
+}
+
+.dup-group-likely .dup-file-similarity {
+  color: #d69e2e;
+}
+
+.dup-group-uncertain .dup-file-similarity {
+  color: #e53e3e;
 }
 
 /* ── Keeper badge ────────────────────────────────────────── */

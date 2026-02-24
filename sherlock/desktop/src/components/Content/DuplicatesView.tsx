@@ -18,7 +18,7 @@ type Props = {
   onDeleteSelected: () => void;
   onBack: () => void;
   onSelectGroupDuplicates: (group: DuplicateGroup) => void;
-  onPreviewFile: (file: DuplicateFile) => void;
+  onPreviewGroup: (group: DuplicateGroup) => void;
 };
 
 function formatDate(mtimeNs: number): string {
@@ -30,7 +30,7 @@ export default function DuplicatesView({
   data, loading, selected,
   nearEnabled, nearThreshold, onNearEnabledChange, onNearThresholdChange,
   onToggleFile, onSelectAllDuplicates, onDeselectAll, onDeleteSelected,
-  onBack, onSelectGroupDuplicates, onPreviewFile,
+  onBack, onSelectGroupDuplicates, onPreviewGroup,
 }: Props) {
   return (
     <div className="duplicates-view">
@@ -90,7 +90,7 @@ export default function DuplicatesView({
             selected={selected}
             onToggleFile={onToggleFile}
             onSelectGroupDuplicates={onSelectGroupDuplicates}
-            onPreviewFile={onPreviewFile}
+            onPreviewGroup={onPreviewGroup}
           />
         ))}
       </div>
@@ -98,20 +98,29 @@ export default function DuplicatesView({
   );
 }
 
+function confidenceTier(group: DuplicateGroup): "safe" | "likely" | "uncertain" {
+  if (group.groupType === "exact") return "safe";
+  if (group.avgSimilarity != null && group.avgSimilarity >= 0.85) return "likely";
+  return "uncertain";
+}
+
+const tierLabel = { safe: "EXACT", likely: "NEAR", uncertain: "NEAR" } as const;
+
 function GroupCard({
-  group, selected, onToggleFile, onSelectGroupDuplicates, onPreviewFile,
+  group, selected, onToggleFile, onSelectGroupDuplicates, onPreviewGroup,
 }: {
   group: DuplicateGroup;
   selected: Set<number>;
   onToggleFile: (fileId: number) => void;
   onSelectGroupDuplicates: (group: DuplicateGroup) => void;
-  onPreviewFile: (file: DuplicateFile) => void;
+  onPreviewGroup: (group: DuplicateGroup) => void;
 }) {
+  const tier = confidenceTier(group);
   return (
-    <div className="dup-group" data-group-type={group.groupType}>
+    <div className={`dup-group dup-group-${tier}`} data-group-type={group.groupType}>
       <div className="dup-group-header">
-        <span className={`dup-type-badge dup-type-badge-${group.groupType}`}>
-          {group.groupType === "exact" ? "EXACT" : "NEAR"}
+        <span className={`dup-type-badge dup-type-badge-${tier}`}>
+          {tierLabel[tier]}
         </span>
         <div className="dup-group-info">
           <strong>{group.fileCount}</strong> copies &middot; {formatBytes(group.wastedBytes)} wasted
@@ -121,6 +130,9 @@ function GroupCard({
             </span>
           )}
         </div>
+        <button type="button" onClick={() => onPreviewGroup(group)}>
+          Compare
+        </button>
         <button type="button" onClick={() => onSelectGroupDuplicates(group)}>
           Select duplicates
         </button>
@@ -131,7 +143,7 @@ function GroupCard({
           file={file}
           isSelected={selected.has(file.id)}
           onToggle={() => onToggleFile(file.id)}
-          onPreview={() => onPreviewFile(file)}
+          onPreview={() => onPreviewGroup(group)}
         />
       ))}
     </div>

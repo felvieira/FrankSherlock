@@ -61,7 +61,7 @@ describe("PreviewModal", () => {
     );
     expect(screen.getByText("photos/sunset.jpg")).toBeInTheDocument();
     expect(screen.getByText("A beautiful sunset")).toBeInTheDocument();
-    expect(screen.getByText("2 KB")).toBeInTheDocument();
+    expect(screen.getByText("2.0 KB")).toBeInTheDocument();
   });
 
   it("calls onClose when close button clicked", async () => {
@@ -111,7 +111,7 @@ describe("PreviewModal", () => {
     expect(screen.getByLabelText("Next image")).toBeInTheDocument();
   });
 
-  it("renders collage for multiple images", () => {
+  it("renders collage for multiple images with comparison list", () => {
     const items = [
       item,
       {
@@ -132,7 +132,10 @@ describe("PreviewModal", () => {
       />,
     );
     expect(container.querySelector(".preview-collage")).not.toBeNull();
-    expect(screen.getByText("2 files selected")).toBeInTheDocument();
+    // Shows per-file comparison rows instead of generic count
+    expect(container.querySelector(".preview-compare-list")).not.toBeNull();
+    expect(screen.getByText("sunset.jpg")).toBeInTheDocument();
+    expect(screen.getByText("beach.jpg")).toBeInTheDocument();
   });
 
   it("renders single PDF with PdfViewer", () => {

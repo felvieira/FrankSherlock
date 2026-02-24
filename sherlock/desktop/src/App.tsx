@@ -10,7 +10,6 @@ import {
 import type {
   Album,
   DbStats,
-  DuplicateFile,
   DuplicateGroup,
   DuplicatesResponse,
   FileMetadata,
@@ -543,9 +542,9 @@ export default function App() {
     });
   }
 
-  function handleDuplicatesPreviewFile(file: DuplicateFile) {
-    // Reuse PreviewModal by creating a temporary SearchItem-compatible object
-    const asSearchItem: SearchItem = {
+  function handleDuplicatesPreviewGroup(group: DuplicateGroup) {
+    // Convert all group files (up to 10) to SearchItem[] for PreviewModal
+    const items: SearchItem[] = group.files.slice(0, 10).map((file) => ({
       id: file.id,
       rootId: file.rootId,
       relPath: file.relPath,
@@ -556,15 +555,10 @@ export default function App() {
       mtimeNs: file.mtimeNs,
       sizeBytes: file.sizeBytes,
       thumbnailPath: file.thumbnailPath,
-    };
+    }));
     setConfirmDeleteFiles(null);
-    // Open preview using existing mechanism — single item
-    selectOnly(0);
-    // Store temporarily in items-like structure for preview
-    // Actually, just open the preview modal directly with the file data
     setPreviewOpen(false);
-    // Use a simpler approach: set a temp array and open preview
-    setDupPreviewItems([asSearchItem]);
+    setDupPreviewItems(items);
   }
 
   const [dupPreviewItems, setDupPreviewItems] = useState<SearchItem[]>([]);
@@ -742,9 +736,9 @@ export default function App() {
       {dupPreviewItems.length > 0 && (
         <PreviewModal
           previewItems={dupPreviewItems}
-          selectedCount={1}
-          singlePreviewIndex={0}
-          totalItems={1}
+          selectedCount={dupPreviewItems.length}
+          singlePreviewIndex={null}
+          totalItems={dupPreviewItems.length}
           onClose={() => setDupPreviewItems([])}
           onNavigate={() => {}}
         />
@@ -893,7 +887,7 @@ export default function App() {
             onDeleteSelected={handleDuplicatesDeleteSelected}
             onBack={handleDuplicatesBack}
             onSelectGroupDuplicates={handleDuplicatesSelectGroup}
-            onPreviewFile={handleDuplicatesPreviewFile}
+            onPreviewGroup={handleDuplicatesPreviewGroup}
           />
         ) : (
           <Content
