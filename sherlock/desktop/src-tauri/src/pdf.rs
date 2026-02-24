@@ -139,6 +139,21 @@ pub fn find_content_pages(pdf_path: &Path, count: usize, pdfium_lib: &Path) -> A
     Ok(result)
 }
 
+/// Check if a PDF is password-protected without fully loading it.
+pub fn is_password_protected(pdf_path: &Path, pdfium_lib: &Path) -> bool {
+    let pdfium = match load_pdfium(pdfium_lib) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let result = pdfium.load_pdf_from_file(pdf_path, None);
+    matches!(
+        result,
+        Err(PdfiumError::PdfiumLibraryInternalError(
+            PdfiumInternalError::PasswordError,
+        ))
+    )
+}
+
 /// Get the page count of a PDF without extracting text.
 #[allow(dead_code)]
 pub fn page_count(pdf_path: &Path, pdfium_lib: &Path) -> AppResult<u32> {
@@ -182,5 +197,13 @@ mod tests {
         // The separator "\n---\n" should be removed before counting
         let text = "short\n---\ntext";
         assert!(is_scanned_pdf(text, 2));
+    }
+
+    #[test]
+    fn is_password_protected_returns_false_for_missing_pdfium() {
+        let fake_pdf = std::env::temp_dir().join("fake.pdf");
+        let fake_lib = std::path::Path::new("/nonexistent/pdfium");
+        // Should return false when PDFium library can't be loaded
+        assert!(!is_password_protected(&fake_pdf, fake_lib));
     }
 }

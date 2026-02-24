@@ -150,6 +150,11 @@ pub fn generate_pdf_thumbnail(
         }
     }
 
+    // Skip password-protected PDFs
+    if crate::pdf::is_password_protected(pdf_path, pdfium_lib) {
+        return None;
+    }
+
     // Find up to 2 non-blank content pages
     let content_pages = match crate::pdf::find_content_pages(pdf_path, 2, pdfium_lib) {
         Ok(pages) => pages,

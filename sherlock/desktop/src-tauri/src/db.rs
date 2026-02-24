@@ -273,6 +273,7 @@ pub fn upsert_root(db_path: &Path, root_path: &str) -> AppResult<i64> {
 }
 
 fn upsert_root_conn(conn: &Connection, root_path: &str) -> AppResult<i64> {
+    // Return early if root already exists
     if let Ok(id) = conn.query_row(
         "SELECT id FROM roots WHERE root_path = ?1",
         params![root_path],
@@ -281,16 +282,57 @@ fn upsert_root_conn(conn: &Connection, root_path: &str) -> AppResult<i64> {
         return Ok(id);
     }
 
-    let root_name = std::path::Path::new(root_path)
+    let base_name = std::path::Path::new(root_path)
         .file_name()
         .map(|v| v.to_string_lossy().to_string())
         .unwrap_or_else(|| "root".to_string());
+
+    // Check for existing roots with the same display name
+    let conflicts: Vec<(i64, String)> = {
+        let mut stmt =
+            conn.prepare("SELECT id, root_path FROM roots WHERE root_name = ?1")?;
+        let rows = stmt.query_map(params![&base_name], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    let root_name = if conflicts.is_empty() {
+        base_name
+    } else {
+        // Rename existing conflicting roots to disambiguated names
+        for (cid, cpath) in &conflicts {
+            let new_name = disambiguated_name(cpath);
+            conn.execute(
+                "UPDATE roots SET root_name = ?1 WHERE id = ?2",
+                params![new_name, cid],
+            )?;
+        }
+        disambiguated_name(root_path)
+    };
+
     let now = now_epoch_secs();
     conn.execute(
         "INSERT INTO roots(root_path, root_name, created_at, last_scan_at) VALUES (?1, ?2, ?3, ?4)",
         params![root_path, root_name, now, now],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// Build a display name from a root path that includes the parent directory
+/// for disambiguation, e.g. "/mnt/data/One Drive/Pictures" → "..One Drive/Pictures"
+fn disambiguated_name(root_path: &str) -> String {
+    let p = std::path::Path::new(root_path);
+    let name = p
+        .file_name()
+        .map(|v| v.to_string_lossy())
+        .unwrap_or("root".into());
+    match p
+        .parent()
+        .and_then(|pp| pp.file_name())
+        .map(|v| v.to_string_lossy())
+    {
+        Some(parent) => format!("..{parent}/{name}"),
+        None => name.to_string(),
+    }
 }
 
 /// After inserting a new child root, reassign files from a parent root whose
@@ -3774,5 +3816,82 @@ mod tests {
         assert_eq!(resp.groups[0].wasted_bytes, 10_000); // 5000 * 2 extra copies
         assert_eq!(resp.total_wasted_bytes, 10_000);
         assert_eq!(resp.total_duplicate_files, 2);
+    }
+
+    #[test]
+    fn disambiguated_name_with_parent() {
+        assert_eq!(
+            disambiguated_name("/home/user/Pictures"),
+            "..user/Pictures"
+        );
+    }
+
+    #[test]
+    fn disambiguated_name_with_deep_path() {
+        assert_eq!(
+            disambiguated_name("/mnt/gigachad/Microsoft One Drive/Pictures"),
+            "..Microsoft One Drive/Pictures"
+        );
+    }
+
+    #[test]
+    fn disambiguated_name_no_parent() {
+        assert_eq!(disambiguated_name("/Pictures"), "Pictures");
+    }
+
+    #[test]
+    fn disambiguated_name_root_only() {
+        assert_eq!(disambiguated_name("/"), "root");
+    }
+
+    #[test]
+    fn upsert_root_disambiguates_on_collision() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let id1 = upsert_root(&db_path, "/home/alice/Pictures").expect("root1");
+        let id2 = upsert_root(&db_path, "/mnt/drive/Pictures").expect("root2");
+
+        assert_ne!(id1, id2);
+
+        let conn = open_conn(&db_path).expect("open");
+
+        // First root should have been renamed to disambiguated form
+        let name1: String = conn
+            .query_row(
+                "SELECT root_name FROM roots WHERE id = ?1",
+                params![id1],
+                |r| r.get(0),
+            )
+            .expect("query");
+        assert_eq!(name1, "..alice/Pictures");
+
+        // Second root should also be disambiguated
+        let name2: String = conn
+            .query_row(
+                "SELECT root_name FROM roots WHERE id = ?1",
+                params![id2],
+                |r| r.get(0),
+            )
+            .expect("query");
+        assert_eq!(name2, "..drive/Pictures");
+    }
+
+    #[test]
+    fn upsert_root_no_collision_keeps_simple_name() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let id = upsert_root(&db_path, "/home/user/Pictures").expect("root");
+
+        let conn = open_conn(&db_path).expect("open");
+        let name: String = conn
+            .query_row(
+                "SELECT root_name FROM roots WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .expect("query");
+        assert_eq!(name, "Pictures");
     }
 }

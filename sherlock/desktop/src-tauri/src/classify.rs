@@ -757,6 +757,22 @@ pub fn classify_pdf(
 ) -> ClassificationResult {
     log::info!("Classifying PDF: {}", pdf_path.display());
 
+    // Early exit for password-protected PDFs
+    if crate::pdf::is_password_protected(pdf_path, pdfium_lib) {
+        log::info!(
+            "Skipping password-protected PDF: {}",
+            pdf_path.display()
+        );
+        return ClassificationResult {
+            media_type: "document".to_string(),
+            description: "Password-protected PDF (skipped)".to_string(),
+            extracted_text: String::new(),
+            canonical_mentions: String::new(),
+            confidence: 0.0,
+            lang_hint: String::new(),
+        };
+    }
+
     // Step 1: Extract text from PDF
     let (full_text, page_count) = match crate::pdf::extract_text(pdf_path, pdfium_lib) {
         Ok(result) => result,
