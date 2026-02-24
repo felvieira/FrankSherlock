@@ -97,8 +97,8 @@ Covers classification JSON parsing, thumbnail generation, incremental scanning, 
 
 Built for large NAS directories with 100k+ files:
 
-1. **Discovery** -- walks the directory tree using only filesystem metadata (mtime, size). Files matching their previous scan are marked unchanged with zero file reads. Child root subtrees are skipped early via `filter_entry()`. Progress is reported live to the UI every 500 files.
-2. **Processing** -- only new and modified files go through classification and thumbnail generation. Moved files are detected by fingerprint and just update their path reference. Unchanged file markers are batched (200 per transaction) and progress is checkpointed after every file.
+1. **Discovery** -- walks the directory tree using only filesystem metadata (mtime, size) with zero file reads. WalkDir metadata is reused to skip redundant stat syscalls. Child root subtrees are skipped early via `filter_entry()`. Progress is reported live to the UI every 500 files.
+2. **Processing** -- only new and modified files go through fingerprinting, classification, and thumbnail generation. Thumbnail + EXIF extraction run on a separate thread in parallel with the GPU-bound LLM classification. Moved files are detected by fingerprint and just update their path reference. Unchanged file markers are flushed in batch before processing starts, and progress is checkpointed after every file so interrupted scans resume where they left off.
 3. **Cleanup** -- files no longer on disk are soft-deleted, and their cached thumbnails are removed.
 
 Rescanning an unchanged 10k-image directory takes seconds.
