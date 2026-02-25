@@ -11,6 +11,7 @@ const baseProps = {
   albums: [] as Album[],
   description: null as string | null,
   extractedText: null as string | null,
+  confidence: 0.9 as number | null,
   onCopyPath: vi.fn(),
   onCopyDescription: vi.fn(),
   onCopyOcrText: vi.fn(),
@@ -88,6 +89,16 @@ describe("ContextMenu", () => {
     render(<ContextMenu {...baseProps} selectedCount={1} onEditMetadata={onEditMetadata} />);
     await user.click(screen.getByText("Edit Metadata"));
     expect(onEditMetadata).toHaveBeenCalledOnce();
+  });
+
+  it("disables Edit Metadata for unclassified files (confidence=0)", async () => {
+    const user = userEvent.setup();
+    const onEditMetadata = vi.fn();
+    render(<ContextMenu {...baseProps} selectedCount={1} confidence={0} onEditMetadata={onEditMetadata} />);
+    const btn = screen.getByText("Edit Metadata").closest("button")!;
+    expect(btn.className).toContain("disabled");
+    await user.click(btn);
+    expect(onEditMetadata).not.toHaveBeenCalled();
   });
 
   it("shows Add to Album submenu", () => {

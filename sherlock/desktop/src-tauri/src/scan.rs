@@ -14,9 +14,7 @@ use crate::db;
 use crate::error::AppResult;
 use std::path::PathBuf;
 
-use crate::models::{
-    ClassificationResult, ExistingFile, FileRecordUpsert, ScanContext, ScanJobStatus, ScanSummary,
-};
+use crate::models::{ExistingFile, FileRecordUpsert, ScanContext, ScanJobStatus, ScanSummary};
 use crate::platform::paths::normalize_rel_path;
 use crate::thumbnail;
 use crate::video;
@@ -176,234 +174,15 @@ fn run_scan_job_internal(
     let mut used_moved_ids = HashSet::new();
     let mut last_cursor: Option<String> = job.cursor_rel_path.clone();
     const UNCHANGED_BATCH_SIZE: usize = 200;
-    db::checkpoint_scan_job(
-        db_path,
-        job_id,
-        total_files,
-        processed_files,
-        last_cursor.as_deref(),
-        added,
-        modified,
-        moved,
-        unchanged,
-    )?;
 
-    if start_index > 0 {
-        log::info!(
-            "Scan job {}: resuming processing from index {} (cursor: {:?})",
-            job_id,
-            start_index,
-            job.cursor_rel_path
-        );
-    } else {
-        log::info!("Scan job {}: starting processing from beginning", job_id);
-    }
+    // Determine whether to skip the thumbnailing phase (already done on a previous run).
+    let skip_thumbnailing = job.phase == "classifying";
 
-    // Flush all unchanged files upfront so the UI can show previously-known
-    // files immediately while classification works through new/modified ones.
-    let flush_start = Instant::now();
-    let unchanged_paths: Vec<&str> = probes
-        .iter()
-        .skip(start_index)
-        .filter(|p| matches!(p.status, FileStatus::Unchanged))
-        .map(|p| p.rel_path.as_str())
-        .collect();
-    let unchanged_total = unchanged_paths.len() as u64;
-    for batch in unchanged_paths.chunks(UNCHANGED_BATCH_SIZE) {
-        db::touch_file_scan_markers_batch(db_path, job.root_id, batch, job.scan_marker)?;
-    }
-    unchanged += unchanged_total;
-    processed_files += unchanged_total;
-    log::info!(
-        "Scan job {}: flushed {} unchanged markers in {}ms",
-        job_id,
-        unchanged_total,
-        flush_start.elapsed().as_millis(),
-    );
-    db::checkpoint_scan_job(
-        db_path,
-        job_id,
-        total_files,
-        processed_files,
-        last_cursor.as_deref(),
-        added,
-        modified,
-        moved,
-        unchanged,
-    )?;
-
-    // Phase 2: Processing loop — only new and modified files remain
-    for (i, probe) in probes.iter().enumerate().skip(start_index) {
-        if matches!(probe.status, FileStatus::Unchanged) {
-            continue; // already flushed above
-        }
-
-        if let Some(flag) = cancel_flag {
-            if flag.load(Ordering::Relaxed) {
-                db::cancel_scan_job(db_path, job_id)?;
-                return Ok(ScanSummary {
-                    root_id: job.root_id,
-                    root_path: root_path.display().to_string(),
-                    scanned: processed_files,
-                    added,
-                    modified,
-                    moved,
-                    unchanged,
-                    deleted: 0,
-                    elapsed_ms: started.elapsed().as_millis() as u64,
-                });
-            }
-        }
-
-        if let Some(max) = max_files_for_test {
-            if (i - start_index) >= max {
-                break;
-            }
-        }
-
-        // Helper: check cancel flag after slow operations
-        let is_cancelled = || -> bool { cancel_flag.is_some_and(|f| f.load(Ordering::Relaxed)) };
-
-        // Compute fingerprint lazily for new/modified files (deferred from discovery)
-        let fingerprint = match &probe.fingerprint {
-            Some(fp) => fp.clone(),
-            None => fingerprint_file(Path::new(&probe.abs_path), probe.size_bytes as u64)?,
-        };
-
-        match probe.status {
-            FileStatus::Unchanged => unreachable!("filtered above"),
-            FileStatus::Modified => {
-                // Re-classify and regenerate thumbnail
-                let classification = classify_and_thumbnail(ctx, probe);
-                if is_cancelled() {
-                    db::cancel_scan_job(db_path, job_id)?;
-                    return Ok(ScanSummary {
-                        root_id: job.root_id,
-                        root_path: root_path.display().to_string(),
-                        scanned: processed_files,
-                        added,
-                        modified,
-                        moved,
-                        unchanged,
-                        deleted: 0,
-                        elapsed_ms: started.elapsed().as_millis() as u64,
-                    });
-                }
-                let record = probe_to_record(
-                    job.root_id,
-                    job.scan_marker,
-                    probe,
-                    &fingerprint,
-                    &classification,
-                );
-                db::upsert_file_record(db_path, &record)?;
-                if let Some(ref thumb) = classification.thumb_path {
-                    db::update_file_thumb_path(db_path, job.root_id, &probe.rel_path, thumb)?;
-                }
-                modified += 1;
-            }
-            FileStatus::New => {
-                // Check for move detection by fingerprint
-                if let Some(candidates) = by_fingerprint.get(&fingerprint) {
-                    if let Some(candidate) = candidates
-                        .iter()
-                        .find(|c| !used_moved_ids.contains(&c.id) && c.rel_path != probe.rel_path)
-                    {
-                        used_moved_ids.insert(candidate.id);
-                        moved += 1;
-                        db::move_file_by_id(
-                            db_path,
-                            candidate.id,
-                            &probe.rel_path,
-                            &probe.abs_path,
-                            &probe.filename,
-                            probe.mtime_ns,
-                            probe.size_bytes,
-                            job.scan_marker,
-                        )?;
-
-                        // Regenerate thumbnail at new path if old one existed
-                        let abs = Path::new(&probe.abs_path);
-                        let thumb_result = if is_video(abs) {
-                            thumbnail::generate_video_thumbnail(
-                                abs,
-                                &ctx.thumbnails_dir,
-                                &probe.rel_path,
-                                &ctx.tmp_dir,
-                            )
-                        } else if is_pdf_file(abs) {
-                            thumbnail::generate_pdf_thumbnail(
-                                abs,
-                                &ctx.thumbnails_dir,
-                                &probe.rel_path,
-                                &ctx.pdfium_lib_path,
-                                None,
-                            )
-                        } else {
-                            thumbnail::generate_thumbnail(abs, &ctx.thumbnails_dir, &probe.rel_path)
-                        };
-                        if let Some(ref tr) = thumb_result {
-                            db::update_file_thumb_path(
-                                db_path,
-                                job.root_id,
-                                &probe.rel_path,
-                                &tr.path,
-                            )?;
-                        }
-
-                        processed_files += 1;
-                        last_cursor = Some(probe.rel_path.clone());
-                        db::checkpoint_scan_job(
-                            db_path,
-                            job_id,
-                            total_files,
-                            processed_files,
-                            last_cursor.as_deref(),
-                            added,
-                            modified,
-                            moved,
-                            unchanged,
-                        )?;
-                        continue;
-                    }
-                }
-
-                // Genuinely new file — classify
-                let classification = classify_and_thumbnail(ctx, probe);
-                if is_cancelled() {
-                    db::cancel_scan_job(db_path, job_id)?;
-                    return Ok(ScanSummary {
-                        root_id: job.root_id,
-                        root_path: root_path.display().to_string(),
-                        scanned: processed_files,
-                        added,
-                        modified,
-                        moved,
-                        unchanged,
-                        deleted: 0,
-                        elapsed_ms: started.elapsed().as_millis() as u64,
-                    });
-                }
-                let record = probe_to_record(
-                    job.root_id,
-                    job.scan_marker,
-                    probe,
-                    &fingerprint,
-                    &classification,
-                );
-                db::upsert_file_record(db_path, &record)?;
-                if let Some(ref thumb) = classification.thumb_path {
-                    db::update_file_thumb_path(db_path, job.root_id, &probe.rel_path, thumb)?;
-                }
-                added += 1;
-            }
-        }
-
-        processed_files += 1;
-        last_cursor = Some(probe.rel_path.clone());
+    if !skip_thumbnailing {
         db::checkpoint_scan_job(
             db_path,
             job_id,
+            "thumbnailing",
             total_files,
             processed_files,
             last_cursor.as_deref(),
@@ -412,9 +191,217 @@ fn run_scan_job_internal(
             moved,
             unchanged,
         )?;
-    }
 
-    // (Unchanged files were already flushed before the processing loop.)
+        if start_index > 0 {
+            log::info!(
+                "Scan job {}: resuming thumbnailing from index {} (cursor: {:?})",
+                job_id,
+                start_index,
+                job.cursor_rel_path
+            );
+        } else {
+            log::info!("Scan job {}: starting thumbnailing from beginning", job_id);
+        }
+
+        // Flush all unchanged files upfront so the UI can show previously-known
+        // files immediately while thumbnailing works through new/modified ones.
+        let flush_start = Instant::now();
+        let unchanged_paths: Vec<&str> = probes
+            .iter()
+            .skip(start_index)
+            .filter(|p| matches!(p.status, FileStatus::Unchanged))
+            .map(|p| p.rel_path.as_str())
+            .collect();
+        let unchanged_total = unchanged_paths.len() as u64;
+        for batch in unchanged_paths.chunks(UNCHANGED_BATCH_SIZE) {
+            db::touch_file_scan_markers_batch(db_path, job.root_id, batch, job.scan_marker)?;
+        }
+        unchanged += unchanged_total;
+        processed_files += unchanged_total;
+        log::info!(
+            "Scan job {}: flushed {} unchanged markers in {}ms",
+            job_id,
+            unchanged_total,
+            flush_start.elapsed().as_millis(),
+        );
+        db::checkpoint_scan_job(
+            db_path,
+            job_id,
+            "thumbnailing",
+            total_files,
+            processed_files,
+            last_cursor.as_deref(),
+            added,
+            modified,
+            moved,
+            unchanged,
+        )?;
+
+        // Phase 2: Thumbnailing loop — generate thumbnails for new/modified files
+        for (i, probe) in probes.iter().enumerate().skip(start_index) {
+            if matches!(probe.status, FileStatus::Unchanged) {
+                continue; // already flushed above
+            }
+
+            if let Some(flag) = cancel_flag {
+                if flag.load(Ordering::Relaxed) {
+                    db::cancel_scan_job(db_path, job_id)?;
+                    return Ok(ScanSummary {
+                        root_id: job.root_id,
+                        root_path: root_path.display().to_string(),
+                        scanned: processed_files,
+                        added,
+                        modified,
+                        moved,
+                        unchanged,
+                        deleted: 0,
+                        elapsed_ms: started.elapsed().as_millis() as u64,
+                    });
+                }
+            }
+
+            if let Some(max) = max_files_for_test {
+                if (i - start_index) >= max {
+                    break;
+                }
+            }
+
+            // Compute fingerprint lazily for new/modified files (deferred from discovery)
+            let fingerprint = match &probe.fingerprint {
+                Some(fp) => fp.clone(),
+                None => fingerprint_file(Path::new(&probe.abs_path), probe.size_bytes as u64)?,
+            };
+
+            match probe.status {
+                FileStatus::Unchanged => unreachable!("filtered above"),
+                FileStatus::Modified => {
+                    let thumb_result = thumbnail_only(ctx, probe);
+                    let record = probe_to_minimal_record(
+                        job.root_id,
+                        job.scan_marker,
+                        probe,
+                        &fingerprint,
+                        &thumb_result,
+                    );
+                    db::upsert_file_record(db_path, &record)?;
+                    if let Some(ref thumb) = thumb_result.thumb_path {
+                        db::update_file_thumb_path(db_path, job.root_id, &probe.rel_path, thumb)?;
+                    }
+                    modified += 1;
+                }
+                FileStatus::New => {
+                    // Check for move detection by fingerprint
+                    if let Some(candidates) = by_fingerprint.get(&fingerprint) {
+                        if let Some(candidate) = candidates.iter().find(|c| {
+                            !used_moved_ids.contains(&c.id) && c.rel_path != probe.rel_path
+                        }) {
+                            used_moved_ids.insert(candidate.id);
+                            moved += 1;
+                            db::move_file_by_id(
+                                db_path,
+                                candidate.id,
+                                &probe.rel_path,
+                                &probe.abs_path,
+                                &probe.filename,
+                                probe.mtime_ns,
+                                probe.size_bytes,
+                                job.scan_marker,
+                            )?;
+
+                            // Regenerate thumbnail at new path
+                            let abs = Path::new(&probe.abs_path);
+                            let thumb_result = if is_video(abs) {
+                                thumbnail::generate_video_thumbnail(
+                                    abs,
+                                    &ctx.thumbnails_dir,
+                                    &probe.rel_path,
+                                    &ctx.tmp_dir,
+                                )
+                            } else if is_pdf_file(abs) {
+                                thumbnail::generate_pdf_thumbnail(
+                                    abs,
+                                    &ctx.thumbnails_dir,
+                                    &probe.rel_path,
+                                    &ctx.pdfium_lib_path,
+                                    None,
+                                )
+                            } else {
+                                thumbnail::generate_thumbnail(
+                                    abs,
+                                    &ctx.thumbnails_dir,
+                                    &probe.rel_path,
+                                )
+                            };
+                            if let Some(ref tr) = thumb_result {
+                                db::update_file_thumb_path(
+                                    db_path,
+                                    job.root_id,
+                                    &probe.rel_path,
+                                    &tr.path,
+                                )?;
+                            }
+
+                            processed_files += 1;
+                            last_cursor = Some(probe.rel_path.clone());
+                            db::checkpoint_scan_job(
+                                db_path,
+                                job_id,
+                                "thumbnailing",
+                                total_files,
+                                processed_files,
+                                last_cursor.as_deref(),
+                                added,
+                                modified,
+                                moved,
+                                unchanged,
+                            )?;
+                            continue;
+                        }
+                    }
+
+                    // Genuinely new file — thumbnail only (classification deferred)
+                    let thumb_result = thumbnail_only(ctx, probe);
+                    let record = probe_to_minimal_record(
+                        job.root_id,
+                        job.scan_marker,
+                        probe,
+                        &fingerprint,
+                        &thumb_result,
+                    );
+                    db::upsert_file_record(db_path, &record)?;
+                    if let Some(ref thumb) = thumb_result.thumb_path {
+                        db::update_file_thumb_path(db_path, job.root_id, &probe.rel_path, thumb)?;
+                    }
+                    added += 1;
+                }
+            }
+
+            processed_files += 1;
+            last_cursor = Some(probe.rel_path.clone());
+            db::checkpoint_scan_job(
+                db_path,
+                job_id,
+                "thumbnailing",
+                total_files,
+                processed_files,
+                last_cursor.as_deref(),
+                added,
+                modified,
+                moved,
+                unchanged,
+            )?;
+        }
+
+        log::info!(
+            "Scan job {}: thumbnailing complete ({} added, {} modified, {} moved)",
+            job_id,
+            added,
+            modified,
+            moved
+        );
+    } // end skip_thumbnailing
+
+    // (Unchanged files were already flushed before the thumbnailing loop.)
 
     if max_files_for_test.is_some() {
         return Ok(ScanSummary {
@@ -430,9 +417,97 @@ fn run_scan_job_internal(
         });
     }
 
-    log::info!("Scan job {}: processing complete, starting cleanup", job_id);
+    // Phase 3: Classification loop — LLM classify all unclassified files
+    let unclassified = db::list_unclassified_files(db_path, job.root_id, job.scan_marker)?;
+    if !unclassified.is_empty() {
+        let classify_total = unclassified.len() as u64;
+        let mut classify_processed: u64 = 0;
 
-    // Phase 3: Cleanup deleted files
+        // For resume: if we were already in classifying phase, skip already-classified files.
+        // list_unclassified_files only returns confidence=0, so already-classified are excluded.
+        // We still use cursor_rel_path for progress reporting consistency.
+        let classify_cursor = if skip_thumbnailing {
+            job.cursor_rel_path.clone()
+        } else {
+            None
+        };
+
+        db::checkpoint_scan_job(
+            db_path,
+            job_id,
+            "classifying",
+            classify_total,
+            classify_processed,
+            classify_cursor.as_deref(),
+            added,
+            modified,
+            moved,
+            unchanged,
+        )?;
+
+        log::info!(
+            "Scan job {}: starting classification of {} files",
+            job_id,
+            classify_total
+        );
+
+        for file in &unclassified {
+            if let Some(flag) = cancel_flag {
+                if flag.load(Ordering::Relaxed) {
+                    db::cancel_scan_job(db_path, job_id)?;
+                    return Ok(ScanSummary {
+                        root_id: job.root_id,
+                        root_path: root_path.display().to_string(),
+                        scanned: processed_files,
+                        added,
+                        modified,
+                        moved,
+                        unchanged,
+                        deleted: 0,
+                        elapsed_ms: started.elapsed().as_millis() as u64,
+                    });
+                }
+            }
+
+            // Skip files already past the cursor (for resume)
+            if let Some(ref cursor) = classify_cursor {
+                if file.rel_path.as_str() <= cursor.as_str() {
+                    classify_processed += 1;
+                    continue;
+                }
+            }
+
+            classify_and_update(ctx, file.id, &file.abs_path);
+
+            classify_processed += 1;
+            last_cursor = Some(file.rel_path.clone());
+            db::checkpoint_scan_job(
+                db_path,
+                job_id,
+                "classifying",
+                classify_total,
+                classify_processed,
+                last_cursor.as_deref(),
+                added,
+                modified,
+                moved,
+                unchanged,
+            )?;
+        }
+
+        log::info!(
+            "Scan job {}: classification complete ({} files)",
+            job_id,
+            classify_total
+        );
+    }
+
+    log::info!(
+        "Scan job {}: all processing complete, starting cleanup",
+        job_id
+    );
+
+    // Phase 4: Cleanup deleted files
     let deleted_at_before = db::now_epoch_secs_pub();
     let deleted = db::mark_missing_as_deleted(db_path, job.root_id, job.scan_marker)?;
     if deleted > 0 {
@@ -455,9 +530,8 @@ fn run_scan_job_internal(
     Ok(summary)
 }
 
-/// Classify an image and generate its thumbnail.
-struct ClassifyAndThumbResult {
-    classification: ClassificationResult,
+/// Result from thumbnail-only pass (no LLM classification).
+struct ThumbnailOnlyResult {
     thumb_path: Option<String>,
     location_text: String,
     dhash: Option<u64>,
@@ -472,13 +546,12 @@ fn is_video(path: &Path) -> bool {
     video::is_video_file(path)
 }
 
-fn classify_and_thumbnail(ctx: &ScanContext, probe: &FileProbe) -> ClassifyAndThumbResult {
+/// Generate thumbnail and extract EXIF (no LLM classification).
+fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
     let abs = Path::new(&probe.abs_path);
     let is_pdf = is_pdf_file(abs);
     let is_vid = is_video(abs);
 
-    // For password-protected PDFs, try saved passwords from the DB.
-    // Must run first — both classification and thumbnail need the password.
     let pdf_password: Option<String> =
         if is_pdf && crate::pdf::is_password_protected(abs, &ctx.pdfium_lib_path) {
             let passwords = db::get_all_pdf_password_strings(&ctx.db_path).unwrap_or_default();
@@ -487,95 +560,146 @@ fn classify_and_thumbnail(ctx: &ScanContext, probe: &FileProbe) -> ClassifyAndTh
             None
         };
 
-    // Run thumbnail+EXIF in parallel with LLM classification.
-    // Classification is GPU-bound (Ollama HTTP), thumbnail+EXIF are CPU/IO-bound.
-    let (classification, thumb_path, dhash, location_text) = std::thread::scope(|s| {
-        // Spawn thumbnail + EXIF on a separate thread
-        let thumb_handle = s.spawn(|| {
-            let thumb_result = if is_vid {
-                thumbnail::generate_video_thumbnail(
-                    abs,
-                    &ctx.thumbnails_dir,
-                    &probe.rel_path,
-                    &ctx.tmp_dir,
-                )
-            } else if is_pdf {
-                thumbnail::generate_pdf_thumbnail(
-                    abs,
-                    &ctx.thumbnails_dir,
-                    &probe.rel_path,
-                    &ctx.pdfium_lib_path,
-                    pdf_password.as_deref(),
-                )
-            } else {
-                thumbnail::generate_thumbnail(abs, &ctx.thumbnails_dir, &probe.rel_path)
-            };
-
-            let exif_location: crate::exif::ExifLocation = if is_pdf || is_vid {
-                Default::default()
-            } else {
-                crate::exif::extract_location(abs)
-            };
-
-            (thumb_result, exif_location)
-        });
-
-        // LLM classification runs on the calling thread
-        let classification = if is_vid {
-            classify::classify_video(
-                abs,
-                &ctx.model,
-                &ctx.tmp_dir,
-                &ctx.surya_venv_dir,
-                &ctx.surya_script,
-            )
-        } else if is_pdf {
-            classify::classify_pdf(
-                abs,
-                &ctx.model,
-                &ctx.tmp_dir,
-                &ctx.surya_venv_dir,
-                &ctx.surya_script,
-                &ctx.pdfium_lib_path,
-                pdf_password.as_deref(),
-            )
-        } else {
-            classify::classify_image(
-                abs,
-                &ctx.model,
-                &ctx.tmp_dir,
-                &ctx.surya_venv_dir,
-                &ctx.surya_script,
-            )
-        };
-
-        // Join thumbnail/EXIF thread, handling panics gracefully
-        let (thumb_result, exif_location) = match thumb_handle.join() {
-            Ok(result) => result,
-            Err(_) => {
-                log::error!("Thumbnail/EXIF thread panicked for {}", probe.abs_path);
-                (None, Default::default())
-            }
-        };
-
-        let (thumb_path, dhash) = match thumb_result {
-            Some(tr) => (Some(tr.path), tr.dhash),
-            None => (None, None),
-        };
-
-        (
-            classification,
-            thumb_path,
-            dhash,
-            exif_location.location_text,
+    let thumb_result = if is_vid {
+        thumbnail::generate_video_thumbnail(abs, &ctx.thumbnails_dir, &probe.rel_path, &ctx.tmp_dir)
+    } else if is_pdf {
+        thumbnail::generate_pdf_thumbnail(
+            abs,
+            &ctx.thumbnails_dir,
+            &probe.rel_path,
+            &ctx.pdfium_lib_path,
+            pdf_password.as_deref(),
         )
-    });
+    } else {
+        thumbnail::generate_thumbnail(abs, &ctx.thumbnails_dir, &probe.rel_path)
+    };
 
-    ClassifyAndThumbResult {
-        classification,
+    let exif_location: crate::exif::ExifLocation = if is_pdf || is_vid {
+        Default::default()
+    } else {
+        crate::exif::extract_location(abs)
+    };
+
+    let (thumb_path, dhash) = match thumb_result {
+        Some(tr) => (Some(tr.path), tr.dhash),
+        None => (None, None),
+    };
+
+    ThumbnailOnlyResult {
         thumb_path,
-        location_text,
+        location_text: exif_location.location_text,
         dhash,
+    }
+}
+
+/// Infer a basic media_type from file extension (used for placeholder records).
+fn infer_media_type_from_extension(filename: &str) -> &'static str {
+    let lower = filename.to_lowercase();
+    if lower.ends_with(".pdf") {
+        "document"
+    } else if video::is_video_file(Path::new(filename)) {
+        "video"
+    } else {
+        "photo"
+    }
+}
+
+/// Build a minimal DB record with placeholder classification (confidence=0).
+fn probe_to_minimal_record(
+    root_id: i64,
+    scan_marker: i64,
+    probe: &FileProbe,
+    fingerprint: &str,
+    thumb_result: &ThumbnailOnlyResult,
+) -> FileRecordUpsert {
+    let video_meta = if video::is_video_file(Path::new(&probe.abs_path)) {
+        video::extract_metadata(Path::new(&probe.abs_path))
+    } else {
+        None
+    };
+
+    FileRecordUpsert {
+        root_id,
+        rel_path: probe.rel_path.clone(),
+        abs_path: probe.abs_path.clone(),
+        filename: probe.filename.clone(),
+        media_type: infer_media_type_from_extension(&probe.filename).to_string(),
+        description: String::new(),
+        extracted_text: String::new(),
+        canonical_mentions: String::new(),
+        confidence: 0.0,
+        lang_hint: String::new(),
+        mtime_ns: probe.mtime_ns,
+        size_bytes: probe.size_bytes,
+        fingerprint: fingerprint.to_string(),
+        scan_marker,
+        location_text: thumb_result.location_text.clone(),
+        dhash: thumb_result.dhash.map(|h| h as i64),
+        duration_secs: video_meta.as_ref().and_then(|m| m.duration_secs),
+        video_width: video_meta.as_ref().and_then(|m| m.width),
+        video_height: video_meta.as_ref().and_then(|m| m.height),
+        video_codec: video_meta.as_ref().and_then(|m| m.video_codec.clone()),
+        audio_codec: video_meta.as_ref().and_then(|m| m.audio_codec.clone()),
+    }
+}
+
+/// Classify a single file via LLM and update the DB record.
+fn classify_and_update(ctx: &ScanContext, file_id: i64, abs_path: &str) {
+    let abs = Path::new(abs_path);
+    let is_pdf = is_pdf_file(abs);
+    let is_vid = is_video(abs);
+
+    let pdf_password: Option<String> =
+        if is_pdf && crate::pdf::is_password_protected(abs, &ctx.pdfium_lib_path) {
+            let passwords = db::get_all_pdf_password_strings(&ctx.db_path).unwrap_or_default();
+            crate::pdf::try_passwords(abs, &ctx.pdfium_lib_path, &passwords)
+        } else {
+            None
+        };
+
+    let classification = if is_vid {
+        classify::classify_video(
+            abs,
+            &ctx.model,
+            &ctx.tmp_dir,
+            &ctx.surya_venv_dir,
+            &ctx.surya_script,
+        )
+    } else if is_pdf {
+        classify::classify_pdf(
+            abs,
+            &ctx.model,
+            &ctx.tmp_dir,
+            &ctx.surya_venv_dir,
+            &ctx.surya_script,
+            &ctx.pdfium_lib_path,
+            pdf_password.as_deref(),
+        )
+    } else {
+        classify::classify_image(
+            abs,
+            &ctx.model,
+            &ctx.tmp_dir,
+            &ctx.surya_venv_dir,
+            &ctx.surya_script,
+        )
+    };
+
+    if let Err(e) = db::update_file_classification(
+        &ctx.db_path,
+        file_id,
+        &classification.media_type,
+        &classification.description,
+        &classification.extracted_text,
+        &classification.canonical_mentions,
+        classification.confidence,
+        &classification.lang_hint,
+    ) {
+        log::error!(
+            "Failed to update classification for file {}: {}",
+            file_id,
+            e
+        );
     }
 }
 
@@ -715,45 +839,6 @@ fn collect_image_probes_incremental(
         sort_ms,
     );
     Ok(probes)
-}
-
-fn probe_to_record(
-    root_id: i64,
-    scan_marker: i64,
-    probe: &FileProbe,
-    fingerprint: &str,
-    result: &ClassifyAndThumbResult,
-) -> FileRecordUpsert {
-    // Extract video metadata if this is a video file
-    let video_meta = if video::is_video_file(Path::new(&probe.abs_path)) {
-        video::extract_metadata(Path::new(&probe.abs_path))
-    } else {
-        None
-    };
-
-    FileRecordUpsert {
-        root_id,
-        rel_path: probe.rel_path.clone(),
-        abs_path: probe.abs_path.clone(),
-        filename: probe.filename.clone(),
-        media_type: result.classification.media_type.clone(),
-        description: result.classification.description.clone(),
-        extracted_text: result.classification.extracted_text.clone(),
-        canonical_mentions: result.classification.canonical_mentions.clone(),
-        confidence: result.classification.confidence,
-        lang_hint: result.classification.lang_hint.clone(),
-        mtime_ns: probe.mtime_ns,
-        size_bytes: probe.size_bytes,
-        fingerprint: fingerprint.to_string(),
-        scan_marker,
-        location_text: result.location_text.clone(),
-        dhash: result.dhash.map(|h| h as i64),
-        duration_secs: video_meta.as_ref().and_then(|m| m.duration_secs),
-        video_width: video_meta.as_ref().and_then(|m| m.width),
-        video_height: video_meta.as_ref().and_then(|m| m.height),
-        video_codec: video_meta.as_ref().and_then(|m| m.video_codec.clone()),
-        audio_codec: video_meta.as_ref().and_then(|m| m.audio_codec.clone()),
-    }
 }
 
 fn cleanup_deleted_caches(db_path: &Path, root_id: i64, deleted_at: i64, thumbnails_dir: &Path) {

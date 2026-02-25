@@ -82,7 +82,7 @@ describe("Sidebar", () => {
 
   it("renders running scan with pause button inside RootCard", () => {
     render(<Sidebar {...defaultProps} roots={[sampleRoot]} activeScans={[mockRunningScan]} />);
-    expect(screen.getByText("50/100")).toBeInTheDocument();
+    expect(screen.getByText("Classifying 50/100")).toBeInTheDocument();
     expect(screen.getByText("Pause")).toBeInTheDocument();
   });
 

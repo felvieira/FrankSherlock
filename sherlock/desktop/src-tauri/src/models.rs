@@ -183,6 +183,14 @@ pub struct ScanJobState {
     pub moved: u64,
     pub unchanged: u64,
     pub cursor_rel_path: Option<String>,
+    pub phase: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UnclassifiedFile {
+    pub id: i64,
+    pub rel_path: String,
+    pub abs_path: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

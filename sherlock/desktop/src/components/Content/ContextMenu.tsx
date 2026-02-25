@@ -9,6 +9,7 @@ type Props = {
   albums: Album[];
   description: string | null;
   extractedText: string | null;
+  confidence: number | null;
   onCopyPath: () => void;
   onCopyDescription: () => void;
   onCopyOcrText: () => void;
@@ -22,10 +23,11 @@ type Props = {
 };
 
 export default function ContextMenu({
-  x, y, selectedCount, albums, description, extractedText,
+  x, y, selectedCount, albums, description, extractedText, confidence,
   onCopyPath, onCopyDescription, onCopyOcrText, onRename, onEditMetadata, onProperties,
   onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
 }: Props) {
+  const isUnclassified = confidence !== null && confidence === 0;
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,7 +98,12 @@ export default function ContextMenu({
       )}
 
       {selectedCount === 1 && (
-        <button className="context-menu-item" role="menuitem" onClick={onEditMetadata}>
+        <button
+          className={`context-menu-item${isUnclassified ? " disabled" : ""}`}
+          role="menuitem"
+          onClick={isUnclassified ? undefined : onEditMetadata}
+          title={isUnclassified ? "Not yet classified" : undefined}
+        >
           <span>Edit Metadata</span>
         </button>
       )}

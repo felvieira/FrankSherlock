@@ -65,7 +65,7 @@ export type ScanJobStatus = {
   updatedAt: number;
   startedAt: number;
   completedAt?: number | null;
-  phase: "discovering" | "processing" | "cleanup";
+  phase: "discovering" | "thumbnailing" | "classifying" | "processing" | "cleanup";
   discoveredFiles: number;
 };
 

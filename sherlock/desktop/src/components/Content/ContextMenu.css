@@ -32,6 +32,16 @@
   color: var(--danger);
 }
 
+.context-menu-item.disabled {
+  color: var(--text-secondary);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.context-menu-item.disabled:hover {
+  background: none;
+}
+
 .context-menu-shortcut {
   color: var(--text-secondary);
   font-size: 0.75rem;

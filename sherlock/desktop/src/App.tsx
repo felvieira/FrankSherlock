@@ -444,7 +444,13 @@ export default function App() {
     setContextMenu(null);
     if (selectedIndices.size !== 1) return;
     const idx = [...selectedIndices][0];
-    if (idx < items.length) setEditMetadataItem(items[idx]);
+    if (idx >= items.length) return;
+    const item = items[idx];
+    if (item.confidence === 0) {
+      setNotice("This file hasn't been classified yet");
+      return;
+    }
+    setEditMetadataItem(item);
   }
 
   function handleContextProperties() {
@@ -857,6 +863,7 @@ export default function App() {
           albums={albums}
           description={contextMenuMeta?.description ?? null}
           extractedText={contextMenuMeta?.extractedText ?? null}
+          confidence={selectedIndices.size === 1 ? (items[[...selectedIndices][0]]?.confidence ?? null) : null}
           onCopyPath={handleContextCopyPath}
           onCopyDescription={handleContextCopyDescription}
           onCopyOcrText={handleContextCopyOcrText}

@@ -545,7 +545,7 @@ pub fn get_scan_job_state(db_path: &Path, job_id: i64) -> AppResult<ScanJobState
     conn.query_row(
         "SELECT
             root_id, root_path, scan_marker, processed_files,
-            added, modified, moved, unchanged, cursor_rel_path
+            added, modified, moved, unchanged, cursor_rel_path, phase
          FROM scan_jobs
          WHERE id = ?1",
         params![job_id],
@@ -560,6 +560,7 @@ pub fn get_scan_job_state(db_path: &Path, job_id: i64) -> AppResult<ScanJobState
                 moved: row.get::<_, i64>(6)? as u64,
                 unchanged: row.get::<_, i64>(7)? as u64,
                 cursor_rel_path: row.get(8)?,
+                phase: row.get(9)?,
             })
         },
     )
@@ -570,6 +571,7 @@ pub fn get_scan_job_state(db_path: &Path, job_id: i64) -> AppResult<ScanJobState
 pub fn checkpoint_scan_job(
     db_path: &Path,
     job_id: i64,
+    phase: &str,
     total_files: u64,
     processed_files: u64,
     cursor_rel_path: Option<&str>,
@@ -582,18 +584,19 @@ pub fn checkpoint_scan_job(
     conn.execute(
         "UPDATE scan_jobs
          SET status = 'running',
-             phase = 'processing',
-             total_files = ?2,
-             processed_files = ?3,
-             cursor_rel_path = ?4,
-             added = ?5,
-             modified = ?6,
-             moved = ?7,
-             unchanged = ?8,
-             updated_at = ?9
+             phase = ?2,
+             total_files = ?3,
+             processed_files = ?4,
+             cursor_rel_path = ?5,
+             added = ?6,
+             modified = ?7,
+             moved = ?8,
+             unchanged = ?9,
+             updated_at = ?10
          WHERE id = ?1",
         params![
             job_id,
+            phase,
             total_files as i64,
             processed_files as i64,
             cursor_rel_path,
@@ -605,6 +608,32 @@ pub fn checkpoint_scan_job(
         ],
     )?;
     Ok(())
+}
+
+pub fn list_unclassified_files(
+    db_path: &Path,
+    root_id: i64,
+    scan_marker: i64,
+) -> AppResult<Vec<crate::models::UnclassifiedFile>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, rel_path, abs_path FROM files
+         WHERE root_id = ?1 AND scan_marker = ?2 AND confidence = 0.0
+           AND deleted_at IS NULL
+         ORDER BY rel_path",
+    )?;
+    let rows = stmt.query_map(params![root_id, scan_marker], |row| {
+        Ok(crate::models::UnclassifiedFile {
+            id: row.get(0)?,
+            rel_path: row.get(1)?,
+            abs_path: row.get(2)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
 }
 
 pub fn complete_scan_job_by_id(
@@ -2978,7 +3007,19 @@ mod tests {
 
         let job = create_or_resume_scan_job(&db_path, "/tmp/demo").expect("job");
         assert_eq!(job.status, "running");
-        checkpoint_scan_job(&db_path, job.id, 20, 7, Some("a.jpg"), 1, 2, 0, 4).expect("ckpt");
+        checkpoint_scan_job(
+            &db_path,
+            job.id,
+            "thumbnailing",
+            20,
+            7,
+            Some("a.jpg"),
+            1,
+            2,
+            0,
+            4,
+        )
+        .expect("ckpt");
         fail_scan_job(&db_path, job.id, "failure").expect("fail");
 
         let resumed = create_or_resume_scan_job(&db_path, "/tmp/demo").expect("resume");

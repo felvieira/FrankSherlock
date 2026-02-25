@@ -115,14 +115,23 @@ export default function RootCard({ root, isSelected, scan, readOnly, onSelect, o
           )}
         </div>
       )}
-      {scan?.status === "running" && scan.phase !== "discovering" && (
+      {scan?.status === "running" && scan.phase === "thumbnailing" && (
         <div className="root-card-scan">
           <progress value={progress} max={100} />
-          <span>{scan.processedFiles}/{scan.totalFiles}</span>
-          {eta && <span className="root-card-eta">{eta} remaining</span>}
+          <span>Thumbnailing {scan.processedFiles}/{scan.totalFiles}</span>
           <div className="root-card-scan-stats">
             +{scan.added} new, {scan.modified} mod, {scan.moved} moved
           </div>
+          {!readOnly && onCancelScan && (
+            <button type="button" className="root-card-scan-btn" onClick={(e) => { e.stopPropagation(); onCancelScan(); }}>Pause</button>
+          )}
+        </div>
+      )}
+      {scan?.status === "running" && (scan.phase === "classifying" || scan.phase === "processing") && (
+        <div className="root-card-scan">
+          <progress value={progress} max={100} />
+          <span>Classifying {scan.processedFiles}/{scan.totalFiles}</span>
+          {eta && <span className="root-card-eta">{eta} remaining</span>}
           {!readOnly && onCancelScan && (
             <button type="button" className="root-card-scan-btn" onClick={(e) => { e.stopPropagation(); onCancelScan(); }}>Pause</button>
           )}

@@ -45,11 +45,19 @@ describe("RootCard", () => {
     expect(screen.queryByLabelText("Remove photos")).not.toBeInTheDocument();
   });
 
-  it("shows scan progress with stats when scan is running", () => {
+  it("shows scan progress with stats when scan is running (classifying phase)", () => {
     render(
       <RootCard root={sampleRoot} isSelected={false} scan={mockRunningScan} readOnly={false} onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onCopyPath={vi.fn()} onCancelScan={vi.fn()} />
     );
-    expect(screen.getByText("50/100")).toBeInTheDocument();
+    expect(screen.getByText("Classifying 50/100")).toBeInTheDocument();
+  });
+
+  it("shows scan progress with stats when scan is thumbnailing", () => {
+    const thumbnailingScan = { ...mockRunningScan, phase: "thumbnailing" as const };
+    render(
+      <RootCard root={sampleRoot} isSelected={false} scan={thumbnailingScan} readOnly={false} onSelect={vi.fn()} onDelete={vi.fn()} onRescan={vi.fn()} onCopyPath={vi.fn()} onCancelScan={vi.fn()} />
+    );
+    expect(screen.getByText("Thumbnailing 50/100")).toBeInTheDocument();
     expect(screen.getByText(/\+10 new, 5 mod, 2 moved/)).toBeInTheDocument();
   });
 
