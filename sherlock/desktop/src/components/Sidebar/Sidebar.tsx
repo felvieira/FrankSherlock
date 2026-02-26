@@ -1,4 +1,4 @@
-import type { Album, DbStats, RootInfo, ScanJobStatus, SmartFolder, UpdateInfo } from "../../types";
+import type { Album, DbStats, FaceDetectProgress, RootInfo, ScanJobStatus, SmartFolder, UpdateInfo } from "../../types";
 import { formatBytes } from "../../utils/format";
 import { useDragReorder } from "../../hooks/useDragReorder";
 import RootCard from "./RootCard";
@@ -19,6 +19,7 @@ type SidebarProps = {
   activeAlbumName: string | null;
   activeSmartFolderId: number | null;
   selectedSubdir: string | null;
+  faceProgress: FaceDetectProgress | null;
   onSelectSubdir: (subdir: string | null) => void;
   onSelectRoot: (rootId: number | null) => void;
   onDeleteRoot: (root: RootInfo) => void;
@@ -26,6 +27,8 @@ type SidebarProps = {
   onRescanRoot: (root: RootInfo) => void;
   onRefreshRoot: (root: RootInfo) => void;
   onCopyRootPath: (root: RootInfo) => void;
+  onDetectFaces: (root: RootInfo) => void;
+  onCancelFaceDetect: () => void;
   onCancelScan: (scan: ScanJobStatus) => void;
   onResumeScan: (scan: ScanJobStatus) => void;
   onSelectAlbum: (album: Album) => void;
@@ -37,7 +40,7 @@ type SidebarProps = {
   onReorderSmartFolders?: (ids: number[]) => void;
   onFindDuplicates?: () => void;
   onOpenPdfPasswords?: () => void;
-  onDetectFaces?: () => void;
+  onOpenFaces?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -49,12 +52,13 @@ type SidebarProps = {
 export default function Sidebar({
   roots, selectedRootId, activeScans, dbStats, readOnly,
   setupReady, albums, smartFolders, activeAlbumName, activeSmartFolderId,
-  selectedSubdir, onSelectSubdir,
+  selectedSubdir, faceProgress, onSelectSubdir,
   onSelectRoot, onDeleteRoot, onRescanRoot, onRefreshRoot, onCopyRootPath, onPickAndScan,
+  onDetectFaces, onCancelFaceDetect,
   onCancelScan, onResumeScan,
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
-  onOpenPdfPasswords, onDetectFaces,
+  onOpenPdfPasswords, onOpenFaces,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
 }: SidebarProps) {
@@ -97,13 +101,16 @@ export default function Sidebar({
                   isSelected={selectedRootId === root.id}
                   scan={scan}
                   readOnly={readOnly}
+                  faceProgress={faceProgress?.rootId === root.id ? faceProgress : undefined}
                   onSelect={() => onSelectRoot(selectedRootId === root.id ? null : root.id)}
                   onDelete={() => onDeleteRoot(root)}
                   onRescan={() => onRescanRoot(root)}
                   onRefresh={() => onRefreshRoot(root)}
                   onCopyPath={() => onCopyRootPath(root)}
+                  onDetectFaces={!readOnly ? () => onDetectFaces(root) : undefined}
                   onCancelScan={scan?.status === "running" ? () => onCancelScan(scan) : undefined}
                   onResumeScan={scan?.status === "interrupted" ? () => onResumeScan(scan) : undefined}
+                  onCancelFaceDetect={faceProgress?.rootId === root.id ? onCancelFaceDetect : undefined}
                 />
                 {selectedRootId === root.id && (
                   <DirectoryTree
@@ -160,7 +167,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onOpenPdfPasswords || onDetectFaces || onCheckUpdates) && (
+      {(onFindDuplicates || onOpenPdfPasswords || onOpenFaces || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -184,14 +191,14 @@ export default function Sidebar({
                 PDF Passwords
               </button>
             )}
-            {onDetectFaces && (
+            {onOpenFaces && (
               <button
                 type="button"
                 className="sidebar-tool-btn"
-                onClick={onDetectFaces}
-                title="Detect faces in all scanned images"
+                onClick={onOpenFaces}
+                title="Browse images with detected faces"
               >
-                Detect Faces
+                Faces
               </button>
             )}
             {onCheckUpdates && (

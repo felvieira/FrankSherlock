@@ -462,6 +462,7 @@ pub struct DuplicatesResponse {
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FaceDetectProgress {
+    pub root_id: i64,
     pub total: u64,
     pub processed: u64,
     pub faces_found: u64,

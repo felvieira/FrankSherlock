@@ -22,6 +22,7 @@ import type {
   SetupStatus,
   SmartFolder,
   SubdirEntry,
+  SearchItem,
   SearchRequest,
   SearchResponse,
   VenvProvisionStatus,
@@ -228,8 +229,8 @@ export async function getVideoStreamUrl(absPath: string): Promise<string> {
 
 // ── Face Detection ──────────────────────────────────────────────────
 
-export async function detectFaces(rootScope: number[] = []): Promise<void> {
-  return invoke<void>("detect_faces", { rootScope });
+export async function detectFaces(rootId: number): Promise<void> {
+  return invoke<void>("detect_faces", { rootId });
 }
 
 export async function getFaceDetectStatus(): Promise<FaceDetectProgress | null> {
@@ -242,4 +243,8 @@ export async function cancelFaceDetect(): Promise<boolean> {
 
 export async function getFaceStats(rootScope: number[] = []): Promise<FaceStats> {
   return invoke<FaceStats>("get_face_stats", { rootScope });
+}
+
+export async function listFilesWithFaces(rootScope: number[] = []): Promise<SearchItem[]> {
+  return invoke<SearchItem[]>("list_files_with_faces", { rootScope });
 }

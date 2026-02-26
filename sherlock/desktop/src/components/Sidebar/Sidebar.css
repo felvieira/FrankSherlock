@@ -355,7 +355,7 @@
   background: none;
   border: none;
   width: 100%;
-  font: inherit;
+  font-family: inherit;
 }
 
 .root-card-context-menu button:hover {

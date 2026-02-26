@@ -2344,13 +2344,46 @@ pub fn delete_face_detections_for_file(db_path: &Path, file_id: i64) -> AppResul
     Ok(())
 }
 
-/// List files that haven't been scanned for faces yet.
+/// List files that haven't been scanned for faces yet for a specific root.
 /// Only considers classified images (confidence > 0) whose face_count = 0
 /// and that are image types (not PDFs, videos, etc.).
 pub fn list_files_needing_face_scan(
     db_path: &Path,
-    root_scope: &[i64],
+    root_id: i64,
 ) -> AppResult<Vec<crate::models::UnclassifiedFile>> {
+    let conn = open_conn(db_path)?;
+
+    // face_count = 0 means never scanned; -1 means scanned with no faces; >0 means has faces
+    let sql = "SELECT f.id, f.rel_path, f.abs_path
+         FROM files f
+         WHERE f.deleted_at IS NULL
+           AND f.confidence > 0
+           AND f.face_count = 0
+           AND f.media_type IN ('photo', 'screenshot', 'meme', 'anime', 'illustration')
+           AND f.root_id = ?1
+         ORDER BY f.rel_path";
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(params![root_id], |row| {
+        Ok(crate::models::UnclassifiedFile {
+            id: row.get(0)?,
+            rel_path: row.get(1)?,
+            abs_path: row.get(2)?,
+        })
+    })?;
+
+    let mut files = Vec::new();
+    for row in rows {
+        files.push(row?);
+    }
+    Ok(files)
+}
+
+/// List files that have detected faces, for display in FacesView.
+pub fn list_files_with_faces(
+    db_path: &Path,
+    root_scope: &[i64],
+) -> AppResult<Vec<crate::models::SearchItem>> {
     let conn = open_conn(db_path)?;
 
     let (scope_clause, scope_params) = if root_scope.is_empty() {
@@ -2363,25 +2396,32 @@ pub fn list_files_needing_face_scan(
         )
     };
 
-    // face_count = 0 means never scanned; -1 means scanned with no faces; >0 means has faces
     let sql = format!(
-        "SELECT f.id, f.rel_path, f.abs_path
+        "SELECT f.id, f.root_id, f.rel_path, f.abs_path,
+                f.media_type, f.description, f.confidence, f.mtime_ns, f.size_bytes,
+                f.thumb_path, f.face_count
          FROM files f
          WHERE f.deleted_at IS NULL
-           AND f.confidence > 0
-           AND f.face_count = 0
-           AND f.media_type IN ('photo', 'screenshot', 'meme', 'anime', 'illustration')
+           AND f.face_count > 0
            {}
-         ORDER BY f.rel_path",
+         ORDER BY f.face_count DESC, f.rel_path",
         scope_clause
     );
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_from_iter(scope_params.iter()), |row| {
-        Ok(crate::models::UnclassifiedFile {
+        Ok(crate::models::SearchItem {
             id: row.get(0)?,
-            rel_path: row.get(1)?,
-            abs_path: row.get(2)?,
+            root_id: row.get(1)?,
+            rel_path: row.get(2)?,
+            abs_path: row.get(3)?,
+            media_type: row.get(4)?,
+            description: row.get(5)?,
+            confidence: row.get::<_, f64>(6)? as f32,
+            mtime_ns: row.get(7)?,
+            size_bytes: row.get(8)?,
+            thumbnail_path: row.get(9)?,
+            face_count: row.get::<_, Option<i64>>(10)?.filter(|&c| c > 0),
         })
     })?;
 

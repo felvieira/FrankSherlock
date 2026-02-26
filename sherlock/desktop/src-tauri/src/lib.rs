@@ -809,7 +809,7 @@ fn get_video_stream_url(abs_path: String) -> String {
 
 #[tauri::command]
 fn detect_faces(
-    root_scope: Vec<i64>,
+    root_id: i64,
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -841,7 +841,7 @@ fn detect_faces(
                 &db_path,
                 &models_dir,
                 &ort_lib_dir,
-                &root_scope,
+                root_id,
                 progress_arc.clone(),
                 &cancel_flag,
             )
@@ -871,6 +871,14 @@ fn get_face_detect_status(
 fn cancel_face_detect(state: State<'_, AppState>) -> Result<bool, String> {
     state.face_detect_cancel.store(true, Ordering::Relaxed);
     Ok(true)
+}
+
+#[tauri::command]
+fn list_files_with_faces(
+    root_scope: Vec<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<models::SearchItem>, String> {
+    db::list_files_with_faces(&state.paths.db_file, &root_scope).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -912,7 +920,7 @@ fn run_face_detection(
     db_path: &std::path::Path,
     models_dir: &std::path::Path,
     ort_lib_dir: &std::path::Path,
-    root_scope: &[i64],
+    root_id: i64,
     progress_arc: Arc<Mutex<Option<models::FaceDetectProgress>>>,
     cancel_flag: &AtomicBool,
 ) -> Result<(), String> {
@@ -929,7 +937,7 @@ fn run_face_detection(
     })?;
 
     // Get list of files to process
-    let files = db::list_files_needing_face_scan(db_path, root_scope).map_err(|e| {
+    let files = db::list_files_needing_face_scan(db_path, root_id).map_err(|e| {
         let mut progress = progress_arc.lock().expect("face progress mutex poisoned");
         *progress = None;
         format!("Failed to list files: {e}")
@@ -941,6 +949,7 @@ fn run_face_detection(
     {
         let mut progress = progress_arc.lock().expect("face progress mutex poisoned");
         *progress = Some(models::FaceDetectProgress {
+            root_id,
             total,
             processed: 0,
             faces_found: 0,
@@ -988,6 +997,7 @@ fn run_face_detection(
         {
             let mut progress = progress_arc.lock().expect("face progress mutex poisoned");
             *progress = Some(models::FaceDetectProgress {
+                root_id,
                 total,
                 processed,
                 faces_found,
@@ -1403,7 +1413,8 @@ pub fn run() {
             detect_faces,
             get_face_detect_status,
             cancel_face_detect,
-            get_face_stats
+            get_face_stats,
+            list_files_with_faces
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

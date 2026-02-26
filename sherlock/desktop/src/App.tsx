@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  addFilesToAlbum, cancelScan, copyFilesToClipboard, createAlbum, createSmartFolder,
+  addFilesToAlbum, cancelFaceDetect, cancelScan, copyFilesToClipboard, createAlbum, createSmartFolder,
   deleteAlbum, deleteFiles, deleteSmartFolder, detectFaces, ensureDatabase, findDuplicates,
-  getCliFolderPath, getFileMetadata, listAlbums, listRoots, listSmartFolders,
+  getCliFolderPath, getFaceDetectStatus, getFileMetadata, listAlbums, listRoots, listSmartFolders,
   removeRoot, renameFile, reorderAlbums, reorderRoots, reorderSmartFolders,
   startScan, updateFileMetadata,
 } from "./api";
@@ -12,6 +12,7 @@ import type {
   DbStats,
   DuplicateGroup,
   DuplicatesResponse,
+  FaceDetectProgress,
   FileMetadata,
   RootInfo,
   RuntimeStatus,
@@ -28,6 +29,7 @@ import Titlebar from "./components/Titlebar/Titlebar";
 import Sidebar from "./components/Sidebar/Sidebar";
 import Content from "./components/Content/Content";
 import DuplicatesView from "./components/Content/DuplicatesView";
+import FacesView from "./components/Content/FacesView";
 import PdfPasswordsView from "./components/Content/PdfPasswordsView";
 import ContextMenu from "./components/Content/ContextMenu";
 import StatusBar from "./components/StatusBar/StatusBar";
@@ -101,6 +103,10 @@ export default function App() {
 
   /* ── PDF Passwords state ── */
   const [pdfPasswordsMode, setPdfPasswordsMode] = useState(false);
+
+  /* ── Faces state ── */
+  const [facesMode, setFacesMode] = useState(false);
+  const [faceProgress, setFaceProgress] = useState<FaceDetectProgress | null>(null);
 
   /* ── Auto-update state ── */
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -255,6 +261,17 @@ export default function App() {
   usePolling(POLL_MS, scanManager.pollRuntimeAndScans, [scanManager.trackedJobIds]);
   useInfiniteScroll(sentinelRef, onLoadMore, [items.length, total, loadingMore]);
 
+  // Poll face detection progress
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const status = await getFaceDetectStatus();
+        setFaceProgress(status);
+      } catch { /* ignore */ }
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, []);
+
   const hasModalOpen = !!(confirmDeleteFiles || renameItem || editMetadataItem || propertiesItem || showCreateAlbum || showCreateSmartFolder);
 
   const onRequestDelete = useCallback(() => {
@@ -326,6 +343,7 @@ export default function App() {
 
   // Derive subtitle for titlebar based on current context
   const subtitle = useMemo(() => {
+    if (facesMode) return "Faces";
     if (pdfPasswordsMode) return "PDF Passwords";
     if (duplicatesMode) return "Find Duplicates";
     if (activeAlbumName) return activeAlbumName;
@@ -338,7 +356,7 @@ export default function App() {
       }
     }
     return null;
-  }, [duplicatesMode, activeAlbumName, activeSmartFolderId, smartFolders, selectedRootId, roots, selectedSubdir, pdfPasswordsMode]);
+  }, [facesMode, duplicatesMode, activeAlbumName, activeSmartFolderId, smartFolders, selectedRootId, roots, selectedSubdir, pdfPasswordsMode]);
 
   /* ── Handlers ── */
   function onWindowClose() {
@@ -522,6 +540,7 @@ export default function App() {
   /* ── Duplicates handlers ── */
   async function handleFindDuplicates(threshold?: number | null) {
     setPdfPasswordsMode(false);
+    setFacesMode(false);
     setDuplicatesMode(true);
     setDuplicatesLoading(true);
     setDuplicatesSelected(new Set());
@@ -541,10 +560,18 @@ export default function App() {
   }
 
   /* ── Face detection handler ── */
-  async function handleDetectFaces() {
+  async function handleDetectFaces(root: RootInfo) {
     try {
-      await detectFaces([]);
-      setNotice("Face detection started");
+      await detectFaces(root.id);
+      setNotice(`Face detection started for "${root.rootName}"`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function handleCancelFaceDetect() {
+    try {
+      await cancelFaceDetect();
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -638,6 +665,7 @@ export default function App() {
     setActiveSmartFolderId(null);
     setDuplicatesMode(false);
     setPdfPasswordsMode(false);
+    setFacesMode(false);
   }
 
   async function handleDeleteAlbum(album: Album) {
@@ -695,6 +723,7 @@ export default function App() {
     setActiveSmartFolderId(folder.id);
     setDuplicatesMode(false);
     setPdfPasswordsMode(false);
+    setFacesMode(false);
   }
 
   async function handleDeleteSmartFolder(folder: SmartFolder) {
@@ -956,6 +985,7 @@ export default function App() {
             setQuery((q) => q.replace(/\bsubdir:(?:"[^"]*?"|\S+)\s*/i, "").trim());
             setDuplicatesMode(false);
             setPdfPasswordsMode(false);
+            setFacesMode(false);
           }}
           onDeleteRoot={(root) => setConfirmDeleteRoot(root)}
           onRescanRoot={(root) => scanManager.onRescanRoot(root, setup, readOnly)}
@@ -974,9 +1004,12 @@ export default function App() {
           onReorderRoots={handleReorderRoots}
           onReorderAlbums={handleReorderAlbums}
           onReorderSmartFolders={handleReorderSmartFolders}
-          onFindDuplicates={handleFindDuplicates}
-          onOpenPdfPasswords={() => { setPdfPasswordsMode(true); setDuplicatesMode(false); }}
+          faceProgress={faceProgress}
           onDetectFaces={handleDetectFaces}
+          onCancelFaceDetect={handleCancelFaceDetect}
+          onFindDuplicates={handleFindDuplicates}
+          onOpenPdfPasswords={() => { setPdfPasswordsMode(true); setDuplicatesMode(false); setFacesMode(false); }}
+          onOpenFaces={() => { setFacesMode(true); setDuplicatesMode(false); setPdfPasswordsMode(false); }}
           updateInfo={updateInfo}
           updateChecking={updateChecking}
           updateDownloading={updateDownloading}
@@ -985,7 +1018,23 @@ export default function App() {
           onInstallUpdate={installUpdate}
         />
 
-        {pdfPasswordsMode ? (
+        {facesMode ? (
+          <FacesView
+            onBack={() => setFacesMode(false)}
+            onPreview={(item) => {
+              // Preview a single face item
+              clearSelection();
+              const idx = items.findIndex((i) => i.id === item.id);
+              if (idx >= 0) {
+                selectOnly(idx);
+                setPreviewOpen(true);
+              } else {
+                // Item not in current search results — use dup preview trick
+                setDupPreviewItems([item]);
+              }
+            }}
+          />
+        ) : pdfPasswordsMode ? (
           <PdfPasswordsView
             onBack={() => setPdfPasswordsMode(false)}
             onNotice={setNotice}

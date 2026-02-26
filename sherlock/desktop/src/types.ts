@@ -288,6 +288,7 @@ export type DuplicatesResponse = {
 // ── Face detection ──────────────────────────────────────────────────
 
 export type FaceDetectProgress = {
+  rootId: number;
   total: number;
   processed: number;
   facesFound: number;

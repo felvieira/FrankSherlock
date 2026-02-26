@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { RootInfo, ScanJobStatus } from "../../types";
+import type { FaceDetectProgress, RootInfo, ScanJobStatus } from "../../types";
 import { computeEta } from "../../utils/scanEta";
 
 type RootCardProps = {
@@ -7,16 +7,19 @@ type RootCardProps = {
   isSelected: boolean;
   scan: ScanJobStatus | undefined;
   readOnly: boolean;
+  faceProgress?: FaceDetectProgress;
   onSelect: () => void;
   onDelete: () => void;
   onRescan: () => void;
   onRefresh: () => void;
   onCopyPath: () => void;
+  onDetectFaces?: () => void;
   onCancelScan?: () => void;
   onResumeScan?: () => void;
+  onCancelFaceDetect?: () => void;
 };
 
-export default function RootCard({ root, isSelected, scan, readOnly, onSelect, onDelete, onRescan, onRefresh, onCopyPath, onCancelScan, onResumeScan }: RootCardProps) {
+export default function RootCard({ root, isSelected, scan, readOnly, faceProgress, onSelect, onDelete, onRescan, onRefresh, onCopyPath, onDetectFaces, onCancelScan, onResumeScan, onCancelFaceDetect }: RootCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -146,6 +149,15 @@ export default function RootCard({ root, isSelected, scan, readOnly, onSelect, o
           )}
         </div>
       )}
+      {faceProgress && (
+        <div className="root-card-scan">
+          <progress value={faceProgress.processed} max={faceProgress.total} />
+          <span>Detecting faces {faceProgress.processed}/{faceProgress.total} ({faceProgress.facesFound} found)</span>
+          {!readOnly && onCancelFaceDetect && (
+            <button type="button" className="root-card-scan-btn" onClick={(e) => { e.stopPropagation(); onCancelFaceDetect(); }}>Cancel</button>
+          )}
+        </div>
+      )}
       {showMenu && (
         <div
           ref={menuRef}
@@ -156,6 +168,9 @@ export default function RootCard({ root, isSelected, scan, readOnly, onSelect, o
           <button role="menuitem" onClick={(e) => { e.stopPropagation(); onCopyPath(); setShowMenu(false); }}>Copy Path</button>
           <button role="menuitem" onClick={(e) => { e.stopPropagation(); onRefresh(); setShowMenu(false); }}>Refresh Metadata</button>
           <button role="menuitem" onClick={(e) => { e.stopPropagation(); onRescan(); setShowMenu(false); }}>Rescan</button>
+          {onDetectFaces && (
+            <button role="menuitem" onClick={(e) => { e.stopPropagation(); onDetectFaces(); setShowMenu(false); }}>Detect Faces</button>
+          )}
           <button role="menuitem" className="danger" onClick={(e) => { e.stopPropagation(); onDelete(); setShowMenu(false); }}>Remove</button>
         </div>
       )}
