@@ -8,7 +8,7 @@ Local-only, AI-powered image cataloging and search for your NAS. Point it at a d
 
 ## What it does
 
-- Scans image and PDF directories read-only (JPEG, PNG, GIF, BMP, WebP, TIFF, PDF)
+- Scans image, PDF, and video directories read-only (JPEG, PNG, GIF, BMP, WebP, TIFF, PDF, MP4, MKV, AVI, MOV, WebM, and more)
 - Classifies each image with Ollama's `qwen2.5vl:7b` vision model (media type, description, anime/manga identification, document detection)
 - Extracts text via Surya OCR (with vision LLM fallback) for documents, receipts, screenshots
 - Generates 300px JPEG thumbnails for fast browsing (PDF 2-page montage)
@@ -17,6 +17,8 @@ Local-only, AI-powered image cataloging and search for your NAS. Point it at a d
 - Detects renamed/moved files by fingerprint, so they don't get re-classified
 - Resumes interrupted scans from the last checkpoint
 - Live discovery progress during file walks on large directories
+- Browse subdirectories via a collapsible tree in the sidebar
+- "Refresh Metadata" rescans without Ollama (thumbnails only, no LLM)
 
 ## Screenshot
 
@@ -80,16 +82,16 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 ## Tests
 
 ```bash
-# Rust (227 tests)
+# Rust (268 tests)
 cd sherlock/desktop/src-tauri
 cargo test
 
-# Frontend (204 tests)
+# Frontend (218 tests)
 cd sherlock/desktop
 npm run test
 ```
 
-Covers classification JSON parsing, thumbnail generation, incremental scanning, database operations, scan cancellation, query parsing, duplicate detection, similarity scoring, platform abstraction, and UI components.
+Covers classification JSON parsing, thumbnail generation, incremental scanning, database operations, scan cancellation, query parsing, duplicate detection, similarity scoring, video metadata, platform abstraction, and UI components.
 
 ## How it works
 
@@ -98,8 +100,11 @@ Covers classification JSON parsing, thumbnail generation, incremental scanning, 
 Built for large NAS directories with 100k+ files:
 
 1. **Discovery** -- walks the directory tree using only filesystem metadata (mtime, size) with zero file reads. WalkDir metadata is reused to skip redundant stat syscalls. Child root subtrees are skipped early via `filter_entry()`. Progress is reported live to the UI every 500 files.
-2. **Processing** -- only new and modified files go through fingerprinting, classification, and thumbnail generation. Thumbnail + EXIF extraction run on a separate thread in parallel with the GPU-bound LLM classification. Moved files are detected by fingerprint and just update their path reference. Unchanged file markers are flushed in batch before processing starts, and progress is checkpointed after every file so interrupted scans resume where they left off.
-3. **Cleanup** -- files no longer on disk are soft-deleted, and their cached thumbnails are removed.
+2. **Thumbnailing** -- new and modified files are fingerprinted, thumbnailed, and inserted into the DB with minimal records (confidence=0). Moved files are detected by fingerprint and just update their path reference. Unchanged file markers are flushed in batch before thumbnailing starts. Files appear in the grid immediately.
+3. **Classifying** -- unclassified files are sent to Ollama for LLM classification and their records are updated with rich metadata. This phase can be skipped entirely via "Refresh Metadata" for fast, Ollama-free rescans.
+4. **Cleanup** -- files no longer on disk are soft-deleted, and their cached thumbnails are removed.
+
+Each phase supports cancel and resume independently, with progress checkpointed after every file.
 
 Rescanning an unchanged 10k-image directory takes seconds.
 
@@ -138,10 +143,12 @@ sherlock/                  <- Main application
     src-tauri/src/         <- Rust backend
       classify.rs          <- Ollama vision + Surya OCR pipeline
       thumbnail.rs         <- Thumbnail generation + dHash computation
-      scan.rs              <- Incremental scanner with cancellation + discovery progress
+      scan.rs              <- Incremental scanner (4-phase) with cancellation + resume
       db.rs                <- SQLite + FTS5 + duplicate queries
       similarity.rs        <- dHash + description similarity + Union-Find grouping
       pdf.rs               <- PDFium text extraction + page rendering
+      video.rs             <- ffmpeg metadata, keyframe extraction, subtitle parsing
+      video_server.rs      <- Localhost HTTP Range streaming for video preview
       config.rs            <- App paths
       lib.rs               <- Tauri commands, auto-cleanup
       query_parser.rs      <- NL query parsing
