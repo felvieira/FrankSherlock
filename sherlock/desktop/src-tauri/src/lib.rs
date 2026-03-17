@@ -1359,7 +1359,7 @@ fn compute_setup_status(app_state: &AppState) -> SetupStatus {
     let missing_models = if let Some(models) = installed {
         required_models
             .iter()
-            .filter(|required| !models.iter().any(|m| m == *required))
+            .filter(|required| !models.iter().any(|m| llm::model_satisfies(m, required)))
             .cloned()
             .collect::<Vec<_>>()
     } else {

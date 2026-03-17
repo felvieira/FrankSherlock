@@ -199,6 +199,27 @@ fn parse_progress_percent(line: &str) -> Option<f32> {
     number.parse::<f32>().ok().map(|v| v.clamp(0.0, 100.0))
 }
 
+/// Extract the base model name (without tag) from an Ollama model identifier.
+///
+/// `"qwen2.5vl:7b"` → `"qwen2.5vl"`, `"qwen2.5vl:latest"` → `"qwen2.5vl"`.
+pub fn model_base_name(model: &str) -> &str {
+    model.split(':').next().unwrap_or(model)
+}
+
+/// Check if an installed model satisfies a required model tag.
+///
+/// Returns true when:
+/// - exact match (`qwen2.5vl:7b` == `qwen2.5vl:7b`), OR
+/// - same base name and the installed tag is `:latest` (which is an alias for the default size)
+pub fn model_satisfies(installed: &str, required: &str) -> bool {
+    if installed == required {
+        return true;
+    }
+    // "qwen2.5vl:latest" satisfies "qwen2.5vl:7b" (same base name, :latest is default)
+    model_base_name(installed) == model_base_name(required)
+        && installed.ends_with(":latest")
+}
+
 /// Parse the first whitespace-delimited column from each non-header line.
 /// Works for both `ollama ps` and `ollama list` CLI output.
 /// Kept for backward compatibility with tests.
@@ -323,5 +344,33 @@ mod tests {
             })
             .collect();
         assert!(models.is_empty());
+    }
+
+    #[test]
+    fn model_base_name_strips_tag() {
+        assert_eq!(model_base_name("qwen2.5vl:7b"), "qwen2.5vl");
+        assert_eq!(model_base_name("qwen2.5vl:latest"), "qwen2.5vl");
+        assert_eq!(model_base_name("qwen2.5vl"), "qwen2.5vl");
+    }
+
+    #[test]
+    fn model_satisfies_exact_match() {
+        assert!(model_satisfies("qwen2.5vl:7b", "qwen2.5vl:7b"));
+    }
+
+    #[test]
+    fn model_satisfies_latest_alias() {
+        assert!(model_satisfies("qwen2.5vl:latest", "qwen2.5vl:7b"));
+    }
+
+    #[test]
+    fn model_satisfies_rejects_different_base() {
+        assert!(!model_satisfies("llama3:latest", "qwen2.5vl:7b"));
+    }
+
+    #[test]
+    fn model_satisfies_rejects_different_tag_non_latest() {
+        // "qwen2.5vl:3b" is a different model size, not :latest
+        assert!(!model_satisfies("qwen2.5vl:3b", "qwen2.5vl:7b"));
     }
 }
