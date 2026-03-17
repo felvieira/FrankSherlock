@@ -156,4 +156,32 @@ describe("useDuplicatesManager", () => {
     });
     expect(findDuplicates).toHaveBeenCalledWith([], 0.9);
   });
+
+  it("keeps previous data while re-fetching on threshold change", async () => {
+    // Simulate a slow API call so we can inspect intermediate state
+    let resolveApi!: (value: typeof mockDuplicatesResponse) => void;
+    vi.mocked(findDuplicates).mockImplementation(
+      () => new Promise((resolve) => { resolveApi = resolve; })
+    );
+
+    const { result } = renderHook(() => useDuplicatesManager(callbacks));
+
+    // First load
+    let findPromise: Promise<void>;
+    await act(async () => { findPromise = result.current.onFindDuplicates(); });
+    await act(async () => { resolveApi(mockDuplicatesResponse); });
+    await act(async () => { await findPromise!; });
+    expect(result.current.duplicatesData).toEqual(mockDuplicatesResponse);
+
+    // Change threshold — should NOT clear data to null while loading
+    act(() => { result.current.onNearThresholdChange(0.9); });
+    // Data should still be present (previous results) while loading
+    expect(result.current.duplicatesData).not.toBeNull();
+    expect(result.current.duplicatesLoading).toBe(true);
+
+    // Resolve the second API call
+    await act(async () => { resolveApi(mockDuplicatesResponse); });
+    expect(result.current.duplicatesLoading).toBe(false);
+    expect(result.current.duplicatesData).toEqual(mockDuplicatesResponse);
+  });
 });

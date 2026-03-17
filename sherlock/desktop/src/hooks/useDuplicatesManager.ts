@@ -21,7 +21,6 @@ export function useDuplicatesManager({ onError }: DuplicatesManagerCallbacks) {
     setDuplicatesMode(true);
     setDuplicatesLoading(true);
     setDuplicatesSelected(new Set());
-    setDuplicatesData(null);
     try {
       // Guard: when called as an onClick handler, the first arg is a MouseEvent
       const safeThreshold = typeof threshold === "number" ? threshold : null;
