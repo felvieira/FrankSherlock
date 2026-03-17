@@ -51,8 +51,7 @@ struct AppState {
 impl AppState {
     /// Lazily detect GPU info (deferred so startup doesn't block on nvidia-smi).
     fn gpu_info(&self) -> &platform::gpu::GpuInfo {
-        self.gpu_info
-            .get_or_init(platform::gpu::detect_gpu_memory)
+        self.gpu_info.get_or_init(platform::gpu::detect_gpu_memory)
     }
 
     /// Lazily detect system Python (deferred so startup doesn't block on which/validate).
@@ -130,9 +129,11 @@ fn parse_query_nl(query: String) -> models::ParsedQuery {
 #[tauri::command]
 async fn get_setup_status(state: State<'_, AppState>) -> Result<SetupStatus, String> {
     let app_state = state.inner().clone();
-    Ok(tauri::async_runtime::spawn_blocking(move || compute_setup_status(&app_state))
-        .await
-        .map_err(|e| e.to_string())?)
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || compute_setup_status(&app_state))
+            .await
+            .map_err(|e| e.to_string())?,
+    )
 }
 
 #[tauri::command]

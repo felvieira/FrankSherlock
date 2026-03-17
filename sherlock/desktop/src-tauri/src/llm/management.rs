@@ -415,36 +415,54 @@ mod tests {
     #[test]
     fn resolve_exact_match() {
         let installed = vec!["qwen2.5vl:7b".to_string(), "llama3:8b".to_string()];
-        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:7b");
+        assert_eq!(
+            resolve_model_from_list("qwen2.5vl:7b", &installed),
+            "qwen2.5vl:7b"
+        );
     }
 
     #[test]
     fn resolve_latest_alias() {
         let installed = vec!["qwen2.5vl:latest".to_string()];
-        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:latest");
+        assert_eq!(
+            resolve_model_from_list("qwen2.5vl:7b", &installed),
+            "qwen2.5vl:latest"
+        );
     }
 
     #[test]
     fn resolve_different_variant() {
         let installed = vec!["qwen2.5vl:3b".to_string()];
-        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:3b");
+        assert_eq!(
+            resolve_model_from_list("qwen2.5vl:7b", &installed),
+            "qwen2.5vl:3b"
+        );
     }
 
     #[test]
     fn resolve_no_match_returns_recommended() {
         let installed = vec!["llama3:8b".to_string()];
-        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:7b");
+        assert_eq!(
+            resolve_model_from_list("qwen2.5vl:7b", &installed),
+            "qwen2.5vl:7b"
+        );
     }
 
     #[test]
     fn resolve_prefers_exact_over_latest() {
         let installed = vec!["qwen2.5vl:latest".to_string(), "qwen2.5vl:7b".to_string()];
-        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:7b");
+        assert_eq!(
+            resolve_model_from_list("qwen2.5vl:7b", &installed),
+            "qwen2.5vl:7b"
+        );
     }
 
     #[test]
     fn resolve_prefers_latest_over_other_variant() {
         let installed = vec!["qwen2.5vl:3b".to_string(), "qwen2.5vl:latest".to_string()];
-        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:latest");
+        assert_eq!(
+            resolve_model_from_list("qwen2.5vl:7b", &installed),
+            "qwen2.5vl:latest"
+        );
     }
 }
