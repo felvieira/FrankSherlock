@@ -208,16 +208,54 @@ pub fn model_base_name(model: &str) -> &str {
 
 /// Check if an installed model satisfies a required model tag.
 ///
-/// Returns true when:
-/// - exact match (`qwen2.5vl:7b` == `qwen2.5vl:7b`), OR
-/// - same base name and the installed tag is `:latest` (which is an alias for the default size)
+/// Returns true when the models share the same base name — any variant from the
+/// same family will work (e.g. `qwen2.5vl:3b` satisfies `qwen2.5vl:7b`).
+/// The scan context will resolve to the actual installed tag at runtime.
 pub fn model_satisfies(installed: &str, required: &str) -> bool {
     if installed == required {
         return true;
     }
-    // "qwen2.5vl:latest" satisfies "qwen2.5vl:7b" (same base name, :latest is default)
     model_base_name(installed) == model_base_name(required)
-        && installed.ends_with(":latest")
+}
+
+/// Find the best installed model matching a recommended tag.
+///
+/// Preference order:
+/// 1. Exact match (e.g. `qwen2.5vl:7b`)
+/// 2. `:latest` alias with same base name
+/// 3. Any variant with the same base name (e.g. `qwen2.5vl:3b` when `7b` is recommended)
+///
+/// Returns the installed model tag to use, or the original recommended tag if nothing matches.
+pub fn resolve_installed_model(recommended: &str) -> String {
+    match list_installed_models() {
+        Some(models) => resolve_model_from_list(recommended, &models),
+        None => recommended.to_string(),
+    }
+}
+
+/// Pure-logic model resolution against a known list of installed models.
+fn resolve_model_from_list(recommended: &str, installed: &[String]) -> String {
+    let base = model_base_name(recommended);
+
+    // 1. Exact match
+    if installed.iter().any(|m| m == recommended) {
+        return recommended.to_string();
+    }
+
+    // 2. :latest alias
+    if let Some(m) = installed
+        .iter()
+        .find(|m| model_base_name(m) == base && m.ends_with(":latest"))
+    {
+        return m.clone();
+    }
+
+    // 3. Any variant from the same family
+    if let Some(m) = installed.iter().find(|m| model_base_name(m) == base) {
+        return m.clone();
+    }
+
+    recommended.to_string()
 }
 
 /// Parse the first whitespace-delimited column from each non-header line.
@@ -369,8 +407,44 @@ mod tests {
     }
 
     #[test]
-    fn model_satisfies_rejects_different_tag_non_latest() {
-        // "qwen2.5vl:3b" is a different model size, not :latest
-        assert!(!model_satisfies("qwen2.5vl:3b", "qwen2.5vl:7b"));
+    fn model_satisfies_accepts_different_variant_same_family() {
+        // "qwen2.5vl:3b" is a different size but same family — acceptable
+        assert!(model_satisfies("qwen2.5vl:3b", "qwen2.5vl:7b"));
+    }
+
+    #[test]
+    fn resolve_exact_match() {
+        let installed = vec!["qwen2.5vl:7b".to_string(), "llama3:8b".to_string()];
+        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:7b");
+    }
+
+    #[test]
+    fn resolve_latest_alias() {
+        let installed = vec!["qwen2.5vl:latest".to_string()];
+        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:latest");
+    }
+
+    #[test]
+    fn resolve_different_variant() {
+        let installed = vec!["qwen2.5vl:3b".to_string()];
+        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:3b");
+    }
+
+    #[test]
+    fn resolve_no_match_returns_recommended() {
+        let installed = vec!["llama3:8b".to_string()];
+        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:7b");
+    }
+
+    #[test]
+    fn resolve_prefers_exact_over_latest() {
+        let installed = vec!["qwen2.5vl:latest".to_string(), "qwen2.5vl:7b".to_string()];
+        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:7b");
+    }
+
+    #[test]
+    fn resolve_prefers_latest_over_other_variant() {
+        let installed = vec!["qwen2.5vl:3b".to_string(), "qwen2.5vl:latest".to_string()];
+        assert_eq!(resolve_model_from_list("qwen2.5vl:7b", &installed), "qwen2.5vl:latest");
     }
 }

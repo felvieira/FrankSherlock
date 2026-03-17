@@ -1519,14 +1519,15 @@ fn resolve_pdfium_lib(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
 fn build_scan_context(app_state: &AppState, app_handle: &tauri::AppHandle) -> models::ScanContext {
     let surya_script = resolve_surya_script(app_handle);
     let pdfium_lib_path = resolve_pdfium_lib(app_handle);
-    let (model_tag, _, _) = llm::recommended_model(app_state.gpu_info());
+    let (recommended_tag, _, _) = llm::recommended_model(app_state.gpu_info());
+    let actual_model = llm::resolve_installed_model(recommended_tag);
     models::ScanContext {
         db_path: app_state.paths.db_file.clone(),
         thumbnails_dir: app_state.paths.thumbnails_dir.clone(),
         tmp_dir: app_state.paths.tmp_dir.clone(),
         surya_venv_dir: app_state.paths.surya_venv_dir.clone(),
         surya_script,
-        model: model_tag.to_string(),
+        model: actual_model,
         pdfium_lib_path,
     }
 }
