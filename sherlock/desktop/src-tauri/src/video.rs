@@ -14,11 +14,39 @@ pub fn is_ffmpeg_available() -> bool {
 }
 
 fn ffprobe_path() -> Option<PathBuf> {
-    which::which("ffprobe").ok()
+    which::which("ffprobe")
+        .ok()
+        .or_else(|| find_in_well_known_paths("ffprobe"))
 }
 
 fn ffmpeg_path() -> Option<PathBuf> {
-    which::which("ffmpeg").ok()
+    which::which("ffmpeg")
+        .ok()
+        .or_else(|| find_in_well_known_paths("ffmpeg"))
+}
+
+/// Probe well-known install locations for an executable.
+///
+/// On macOS GUI apps, `/opt/homebrew/bin` and `/usr/local/bin` are typically
+/// not in PATH, so `which::which` won't find Homebrew-installed tools.
+fn find_in_well_known_paths(name: &str) -> Option<PathBuf> {
+    let candidates: &[&str] = &[
+        #[cfg(target_os = "macos")]
+        "/opt/homebrew/bin",
+        #[cfg(target_os = "macos")]
+        "/usr/local/bin",
+        #[cfg(target_os = "linux")]
+        "/usr/bin",
+        #[cfg(target_os = "linux")]
+        "/usr/local/bin",
+    ];
+    for dir in candidates {
+        let path = PathBuf::from(dir).join(name);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
