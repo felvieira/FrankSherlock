@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use crate::platform::process::silent_command;
 
 use regex::Regex;
 use serde_json::Value;
@@ -459,7 +460,7 @@ fn run_surya_ocr(image_path: &Path, surya_venv: &Path, surya_script: &Path) -> O
         return OcrResult::failed("surya");
     }
 
-    let result = Command::new(&python_bin)
+    let result = silent_command(&python_bin)
         .arg(surya_script)
         .arg(image_path)
         .output();

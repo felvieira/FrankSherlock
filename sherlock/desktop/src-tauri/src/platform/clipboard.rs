@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 use std::io::Write;
 #[cfg(target_os = "linux")]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 /// Copy text to the system clipboard.
 ///
@@ -33,7 +33,7 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn try_pipe_to_clipboard(cmd: &str, args: &[&str], text: &str) -> bool {
-    let Ok(mut child) = Command::new(cmd)
+    let Ok(mut child) = super::process::silent_command(cmd)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

@@ -19,7 +19,7 @@ mod video_server;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use config::{prepare_dirs, resolve_paths, AppPaths};
 use error::AppError;
@@ -36,16 +36,31 @@ use tauri::State;
 struct AppState {
     paths: AppPaths,
     read_only: bool,
-    gpu_info: platform::gpu::GpuInfo,
+    gpu_info: Arc<OnceLock<platform::gpu::GpuInfo>>,
     running_scan_jobs: Arc<Mutex<HashSet<i64>>>,
     setup_download: Arc<Mutex<llm::DownloadState>>,
     venv_provision: Arc<Mutex<platform::python::VenvProvisionState>>,
-    cached_system_python: Option<std::path::PathBuf>,
+    cached_system_python: Arc<OnceLock<Option<std::path::PathBuf>>>,
     cancel_flags: Arc<Mutex<HashMap<i64, Arc<AtomicBool>>>>,
     cli_folder_path: Option<String>,
     face_detect_progress: Arc<Mutex<Option<models::FaceDetectProgress>>>,
     face_detect_cancel: Arc<AtomicBool>,
     recluster_progress: Arc<Mutex<Option<models::ReclusterProgress>>>,
+}
+
+impl AppState {
+    /// Lazily detect GPU info (deferred so startup doesn't block on nvidia-smi).
+    fn gpu_info(&self) -> &platform::gpu::GpuInfo {
+        self.gpu_info
+            .get_or_init(platform::gpu::detect_gpu_memory)
+    }
+
+    /// Lazily detect system Python (deferred so startup doesn't block on which/validate).
+    fn system_python(&self) -> Option<&std::path::Path> {
+        self.cached_system_python
+            .get_or_init(platform::python::find_system_python)
+            .as_deref()
+    }
 }
 
 #[tauri::command]
@@ -113,8 +128,11 @@ fn parse_query_nl(query: String) -> models::ParsedQuery {
 }
 
 #[tauri::command]
-fn get_setup_status(state: State<'_, AppState>) -> SetupStatus {
-    compute_setup_status(state.inner())
+async fn get_setup_status(state: State<'_, AppState>) -> Result<SetupStatus, String> {
+    let app_state = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || compute_setup_status(&app_state))
+        .await
+        .map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
@@ -180,15 +198,15 @@ fn start_venv_provision(state: State<'_, AppState>) -> Result<VenvProvisionStatu
     }
 
     let system_python = state
-        .cached_system_python
-        .clone()
+        .system_python()
+        .map(|p| p.to_path_buf())
         .ok_or_else(|| "No Python 3 found on this system. Install Python 3 first.".to_string())?;
 
     // Check if venv already works
     let python_status = platform::python::check_python_available(&state.paths.surya_venv_dir);
     if python_status.available {
         let venv_python = platform::python::python_venv_binary(&state.paths.surya_venv_dir);
-        let surya_ok = std::process::Command::new(&venv_python)
+        let surya_ok = platform::process::silent_command(&venv_python)
             .args(["-c", "import surya"])
             .output()
             .map(|o| o.status.success())
@@ -285,8 +303,13 @@ fn list_active_scans(state: State<'_, AppState>) -> Result<Vec<ScanJobStatus>, S
 }
 
 #[tauri::command]
-fn get_runtime_status() -> RuntimeStatus {
-    runtime::gather_runtime_status()
+async fn get_runtime_status(state: State<'_, AppState>) -> Result<RuntimeStatus, String> {
+    let app_state = state.inner().clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        runtime::gather_runtime_status(app_state.gpu_info())
+    })
+    .await
+    .map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
@@ -1327,7 +1350,8 @@ fn run_face_detection(
 }
 
 fn compute_setup_status(app_state: &AppState) -> SetupStatus {
-    let (model_tag, model_tier, model_reason) = llm::recommended_model(&app_state.gpu_info);
+    let gpu = app_state.gpu_info();
+    let (model_tag, model_tier, model_reason) = llm::recommended_model(gpu);
     let required_models = vec![model_tag.to_string()];
 
     let installed = llm::list_installed_models();
@@ -1378,7 +1402,7 @@ fn compute_setup_status(app_state: &AppState) -> SetupStatus {
     };
 
     // Surya/Python is a soft requirement (OCR enrichment)
-    let system_python_found = app_state.cached_system_python.is_some();
+    let system_python_found = app_state.system_python().is_some();
     let surya_venv_ok = python_status.venv_exists && python_status.available;
 
     if !surya_venv_ok {
@@ -1495,7 +1519,7 @@ fn resolve_pdfium_lib(app_handle: &tauri::AppHandle) -> std::path::PathBuf {
 fn build_scan_context(app_state: &AppState, app_handle: &tauri::AppHandle) -> models::ScanContext {
     let surya_script = resolve_surya_script(app_handle);
     let pdfium_lib_path = resolve_pdfium_lib(app_handle);
-    let (model_tag, _, _) = llm::recommended_model(&app_state.gpu_info);
+    let (model_tag, _, _) = llm::recommended_model(app_state.gpu_info());
     models::ScanContext {
         db_path: app_state.paths.db_file.clone(),
         thumbnails_dir: app_state.paths.thumbnails_dir.clone(),
@@ -1630,10 +1654,11 @@ pub fn run() {
                 ))
             }
         })
-        .expect("failed to initialize application paths/database");
-
-    let gpu_info = platform::gpu::detect_gpu_memory();
-    let cached_system_python = platform::python::find_system_python();
+        .unwrap_or_else(|e| {
+            log::error!("Failed to initialize application paths/database: {e}");
+            eprintln!("Fatal: failed to initialize application paths/database: {e}");
+            std::process::exit(1);
+        });
 
     let cli_folder_path: Option<String> =
         std::env::args()
@@ -1649,11 +1674,11 @@ pub fn run() {
     let app_state = AppState {
         paths,
         read_only,
-        gpu_info,
+        gpu_info: Arc::new(OnceLock::new()),
         running_scan_jobs: Arc::new(Mutex::new(HashSet::new())),
         setup_download: Arc::new(Mutex::new(llm::DownloadState::idle())),
         venv_provision: Arc::new(Mutex::new(platform::python::VenvProvisionState::idle())),
-        cached_system_python,
+        cached_system_python: Arc::new(OnceLock::new()),
         cancel_flags: Arc::new(Mutex::new(HashMap::new())),
         cli_folder_path,
         face_detect_progress: Arc::new(Mutex::new(None)),

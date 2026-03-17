@@ -1,8 +1,9 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
+use super::process::silent_command;
 use crate::models::VenvProvisionStatus;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -52,7 +53,7 @@ pub fn check_python_available(venv: &Path) -> PythonStatus {
         };
     }
 
-    match Command::new(&python_bin).arg("--version").output() {
+    match silent_command(&python_bin).arg("--version").output() {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let version = stdout
@@ -76,7 +77,7 @@ pub fn check_python_available(venv: &Path) -> PythonStatus {
 
 /// Validate that a given path is a working Python 3 interpreter.
 pub fn validate_python3(path: &Path) -> bool {
-    let output = Command::new(path).arg("--version").output();
+    let output = silent_command(path).arg("--version").output();
     match output {
         Ok(o) if o.status.success() => {
             let stdout = String::from_utf8_lossy(&o.stdout);
@@ -197,7 +198,7 @@ pub async fn run_venv_provision(
         s.message = "Creating Python virtual environment...".to_string();
     }
 
-    let venv_result = Command::new(&system_python)
+    let venv_result = silent_command(&system_python)
         .args(["-m", "venv", "--clear"])
         .arg(&venv_dir)
         .output();
@@ -228,7 +229,7 @@ pub async fn run_venv_provision(
     }
 
     let pip = pip_venv_binary(&venv_dir);
-    let child = Command::new(&pip)
+    let child = silent_command(&pip)
         .args(["install", "surya-ocr"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -299,7 +300,7 @@ pub async fn run_venv_provision(
     }
 
     let venv_python = python_venv_binary(&venv_dir);
-    let verify = Command::new(&venv_python)
+    let verify = silent_command(&venv_python)
         .args(["-c", "import surya"])
         .output();
 

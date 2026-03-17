@@ -1,8 +1,8 @@
 use crate::models::RuntimeStatus;
+use crate::platform::gpu::GpuInfo;
 
-pub fn gather_runtime_status() -> RuntimeStatus {
+pub fn gather_runtime_status(gpu: &GpuInfo) -> RuntimeStatus {
     let (ollama_available, loaded_models) = crate::llm::list_loaded_models();
-    let gpu = crate::platform::gpu::detect_gpu_memory();
 
     RuntimeStatus {
         os: crate::platform::current_os(),

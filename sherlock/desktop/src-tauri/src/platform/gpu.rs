@@ -1,5 +1,7 @@
 #[cfg(not(target_os = "macos"))]
-use std::process::Command;
+use std::process::Stdio;
+
+use super::process::silent_command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -71,21 +73,38 @@ pub fn detect_gpu_memory() -> GpuInfo {
     }
 }
 
+/// Spawn nvidia-smi with a timeout to prevent hangs on broken drivers.
 #[cfg(not(target_os = "macos"))]
 fn detect_nvidia_gpu(system_ram_mib: u64) -> Option<GpuInfo> {
-    let output = Command::new("nvidia-smi")
+    let mut child = silent_command("nvidia-smi")
         .args([
             "--query-gpu=memory.used,memory.total",
             "--format=csv,noheader,nounits",
         ])
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
 
-    if !output.status.success() {
-        return None;
+    // Wait up to 5 seconds for nvidia-smi to complete
+    let timeout = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) => return None,
+            Ok(None) if start.elapsed() > timeout => {
+                let _ = child.kill();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(_) => return None,
+        }
     }
 
-    let (used, total) = parse_nvidia_smi_output(&String::from_utf8_lossy(&output.stdout));
+    let stdout = child.stdout.take()?;
+    let text = std::io::read_to_string(stdout).ok()?;
+    let (used, total) = parse_nvidia_smi_output(&text);
     if used.is_none() && total.is_none() {
         return None;
     }
@@ -112,8 +131,10 @@ fn parse_nvidia_smi_output(text: &str) -> (Option<u64>, Option<u64>) {
 
 #[cfg(target_os = "linux")]
 fn detect_amd_gpu(system_ram_mib: u64) -> Option<GpuInfo> {
-    let output = Command::new("rocm-smi")
+    let output = silent_command("rocm-smi")
         .args(["--showmeminfo", "vram", "--csv"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .output()
         .ok()?;
 

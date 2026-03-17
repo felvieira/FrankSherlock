@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use crate::platform::process::silent_command;
 
 use serde::Deserialize;
 
@@ -42,7 +43,7 @@ pub struct VideoMetadata {
 /// Extract video metadata by shelling out to ffprobe.
 pub fn extract_metadata(video_path: &Path) -> Option<VideoMetadata> {
     let ffprobe = ffprobe_path()?;
-    let output = Command::new(ffprobe)
+    let output = silent_command(ffprobe)
         .args([
             "-v",
             "quiet",
@@ -167,7 +168,7 @@ pub fn extract_keyframes(video_path: &Path, tmp_dir: &Path, max_frames: u32) -> 
     if duration < 0.5 {
         // Very short or unknown — just grab a single frame at 0s
         let out = tmp_dir.join("keyframe_000.jpg");
-        let status = Command::new(&ffmpeg)
+        let status = silent_command(&ffmpeg)
             .args(["-v", "quiet", "-ss", "0", "-i"])
             .arg(video_path)
             .args(["-frames:v", "1", "-q:v", "2"])
@@ -203,7 +204,7 @@ pub fn extract_keyframes(video_path: &Path, tmp_dir: &Path, max_frames: u32) -> 
             break;
         }
         let out = tmp_dir.join(format!("keyframe_{i:03}.jpg"));
-        let status = Command::new(&ffmpeg)
+        let status = silent_command(&ffmpeg)
             .args(["-v", "quiet", "-ss", &format!("{timestamp:.2}"), "-i"])
             .arg(video_path)
             .args(["-frames:v", "1", "-q:v", "2"])
@@ -253,7 +254,7 @@ pub fn extract_embedded_subtitles(video_path: &Path, tmp_dir: &Path) -> String {
     let srt_path = tmp_dir.join("_embedded_subs.srt");
 
     // Try to extract the first subtitle stream as SRT
-    let status = Command::new(&ffmpeg)
+    let status = silent_command(&ffmpeg)
         .args(["-v", "quiet", "-i"])
         .arg(video_path)
         .args(["-map", "0:s:0", "-c:s", "srt"])
