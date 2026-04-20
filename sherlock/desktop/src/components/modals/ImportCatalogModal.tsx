@@ -87,6 +87,11 @@ export default function ImportCatalogModal({ onClose }: Props) {
             <p className="import-catalog-hint">
               Restart recommended so the app picks up the restored catalog.
             </p>
+            <p className="import-catalog-hint">
+              If the bundle came from a different machine or drive letter,
+              thumbnails may appear broken — right-click each root and use
+              <strong> Remap Path…</strong> to point it at the new location.
+            </p>
             <div className="modal-actions">
               <button type="button" onClick={onClose}>Close</button>
             </div>
