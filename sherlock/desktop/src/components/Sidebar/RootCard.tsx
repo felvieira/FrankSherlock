@@ -13,13 +13,14 @@ type RootCardProps = {
   onRescan: () => void;
   onRefresh: () => void;
   onCopyPath: () => void;
+  onRemap: () => void;
   onDetectFaces?: () => void;
   onCancelScan?: () => void;
   onResumeScan?: () => void;
   onCancelFaceDetect?: () => void;
 };
 
-export default function RootCard({ root, isSelected, scan, readOnly, faceProgress, onSelect, onDelete, onRescan, onRefresh, onCopyPath, onDetectFaces, onCancelScan, onResumeScan, onCancelFaceDetect }: RootCardProps) {
+export default function RootCard({ root, isSelected, scan, readOnly, faceProgress, onSelect, onDelete, onRescan, onRefresh, onCopyPath, onRemap, onDetectFaces, onCancelScan, onResumeScan, onCancelFaceDetect }: RootCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -178,6 +179,7 @@ export default function RootCard({ root, isSelected, scan, readOnly, faceProgres
           role="menu"
         >
           <button role="menuitem" onClick={(e) => { e.stopPropagation(); onCopyPath(); setShowMenu(false); }}>Copy Path</button>
+          <button role="menuitem" onClick={(e) => { e.stopPropagation(); onRemap(); setShowMenu(false); }}>Remap Path…</button>
           <button role="menuitem" onClick={(e) => { e.stopPropagation(); onRefresh(); setShowMenu(false); }}>Refresh Metadata</button>
           <button role="menuitem" onClick={(e) => { e.stopPropagation(); onRescan(); setShowMenu(false); }}>Rescan</button>
           {onDetectFaces && (

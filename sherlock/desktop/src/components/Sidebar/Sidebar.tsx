@@ -27,6 +27,7 @@ type SidebarProps = {
   onRescanRoot: (root: RootInfo) => void;
   onRefreshRoot: (root: RootInfo) => void;
   onCopyRootPath: (root: RootInfo) => void;
+  onRemapRoot: (root: RootInfo) => void;
   onDetectFaces: (root: RootInfo) => void;
   onCancelFaceDetect: () => void;
   onCancelScan: (scan: ScanJobStatus) => void;
@@ -53,7 +54,7 @@ export default function Sidebar({
   roots, selectedRootId, activeScans, dbStats, readOnly,
   setupReady, albums, smartFolders, activeAlbumName, activeSmartFolderId,
   selectedSubdir, faceProgress, onSelectSubdir,
-  onSelectRoot, onDeleteRoot, onRescanRoot, onRefreshRoot, onCopyRootPath, onPickAndScan,
+  onSelectRoot, onDeleteRoot, onRescanRoot, onRefreshRoot, onCopyRootPath, onRemapRoot, onPickAndScan,
   onDetectFaces, onCancelFaceDetect,
   onCancelScan, onResumeScan,
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
@@ -107,6 +108,7 @@ export default function Sidebar({
                   onRescan={() => onRescanRoot(root)}
                   onRefresh={() => onRefreshRoot(root)}
                   onCopyPath={() => onCopyRootPath(root)}
+                  onRemap={() => onRemapRoot(root)}
                   onDetectFaces={!readOnly ? () => onDetectFaces(root) : undefined}
                   onCancelScan={scan?.status === "running" ? () => onCancelScan(scan) : undefined}
                   onResumeScan={scan?.status === "interrupted" ? () => onResumeScan(scan) : undefined}

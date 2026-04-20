@@ -32,6 +32,7 @@ import ResumeModal from "./components/modals/ResumeModal";
 import ScanSummaryModal from "./components/modals/ScanSummaryModal";
 import PreviewModal from "./components/modals/PreviewModal";
 import ConfirmDeleteModal from "./components/modals/ConfirmDeleteModal";
+import RemapRootModal from "./components/modals/RemapRootModal";
 import ConfirmFileDeleteModal from "./components/modals/ConfirmFileDeleteModal";
 import RenameModal from "./components/modals/RenameModal";
 import HelpModal from "./components/modals/HelpModal";
@@ -73,6 +74,7 @@ export default function App() {
   const [readOnly, setReadOnly] = useState(false);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [confirmDeleteRoot, setConfirmDeleteRoot] = useState<RootInfo | null>(null);
+  const [remapTargetRoot, setRemapTargetRoot] = useState<RootInfo | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -613,6 +615,17 @@ export default function App() {
           onConfirm={onDeleteRoot}
         />
       )}
+      {remapTargetRoot && (
+        <RemapRootModal
+          oldPath={remapTargetRoot.rootPath}
+          onClose={() => setRemapTargetRoot(null)}
+          onRemapped={() => {
+            setNotice(`Remapped "${remapTargetRoot.rootName}"`);
+            void scanManager.refreshRoots();
+            setRemapTargetRoot(null);
+          }}
+        />
+      )}
       {confirmDeleteFiles && (
         <ConfirmFileDeleteModal
           files={confirmDeleteFiles}
@@ -727,6 +740,7 @@ export default function App() {
             copyFilesToClipboard([root.rootPath]).catch(() => {});
             setNotice(`Copied path: ${root.rootPath}`);
           }}
+          onRemapRoot={(root) => setRemapTargetRoot(root)}
           onPickAndScan={() => scanManager.onPickAndScan(setup, readOnly)}
           onCancelScan={(scan) => scanManager.onCancelScan(scan, readOnly)}
           onResumeScan={(scan) => scanManager.onResumeScan(scan, readOnly)}
