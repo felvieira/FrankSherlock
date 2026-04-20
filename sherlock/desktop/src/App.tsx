@@ -33,6 +33,8 @@ import ScanSummaryModal from "./components/modals/ScanSummaryModal";
 import PreviewModal from "./components/modals/PreviewModal";
 import ConfirmDeleteModal from "./components/modals/ConfirmDeleteModal";
 import RemapRootModal from "./components/modals/RemapRootModal";
+import ExportCatalogModal from "./components/modals/ExportCatalogModal";
+import ImportCatalogModal from "./components/modals/ImportCatalogModal";
 import ConfirmFileDeleteModal from "./components/modals/ConfirmFileDeleteModal";
 import RenameModal from "./components/modals/RenameModal";
 import HelpModal from "./components/modals/HelpModal";
@@ -88,6 +90,8 @@ export default function App() {
   const [forceShowSetup, setForceShowSetup] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [pdfPasswordsMode, setPdfPasswordsMode] = useState(false);
+  const [showExportCatalog, setShowExportCatalog] = useState(false);
+  const [showImportCatalog, setShowImportCatalog] = useState(false);
 
   /* ── Directory tree: derived from query ── */
   const selectedSubdir = useMemo(() => {
@@ -615,6 +619,12 @@ export default function App() {
           onConfirm={onDeleteRoot}
         />
       )}
+      {showExportCatalog && (
+        <ExportCatalogModal onClose={() => setShowExportCatalog(false)} />
+      )}
+      {showImportCatalog && (
+        <ImportCatalogModal onClose={() => setShowImportCatalog(false)} />
+      )}
       {remapTargetRoot && (
         <RemapRootModal
           oldPath={remapTargetRoot.rootPath}
@@ -757,6 +767,8 @@ export default function App() {
           onFindDuplicates={enterDuplicatesMode}
           onOpenPdfPasswords={enterPdfPasswordsMode}
           onOpenFaces={enterFacesMode}
+          onExportCatalog={() => setShowExportCatalog(true)}
+          onImportCatalog={() => setShowImportCatalog(true)}
           updateInfo={autoUpdate.updateInfo}
           updateChecking={autoUpdate.updateChecking}
           updateDownloading={autoUpdate.updateDownloading}

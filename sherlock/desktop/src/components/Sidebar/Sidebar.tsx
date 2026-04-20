@@ -42,6 +42,8 @@ type SidebarProps = {
   onFindDuplicates?: () => void;
   onOpenPdfPasswords?: () => void;
   onOpenFaces?: () => void;
+  onExportCatalog?: () => void;
+  onImportCatalog?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -60,6 +62,7 @@ export default function Sidebar({
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
+  onExportCatalog, onImportCatalog,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
 }: SidebarProps) {
@@ -169,7 +172,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onOpenPdfPasswords || onOpenFaces || onCheckUpdates) && (
+      {(onFindDuplicates || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -201,6 +204,26 @@ export default function Sidebar({
                 title="Browse images with detected faces"
               >
                 Faces
+              </button>
+            )}
+            {onExportCatalog && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onExportCatalog}
+                title="Export the catalog (DB + thumbnails + classifications) to a zip file"
+              >
+                Export Catalog…
+              </button>
+            )}
+            {onImportCatalog && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onImportCatalog}
+                title="Restore a previously exported catalog"
+              >
+                Import Catalog…
               </button>
             )}
             {onCheckUpdates && (
