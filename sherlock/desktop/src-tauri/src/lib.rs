@@ -8,6 +8,7 @@ mod llm;
 mod models;
 mod pdf;
 mod platform;
+mod portability;
 mod query_parser;
 mod runtime;
 mod scan;
@@ -33,8 +34,8 @@ use tauri::Manager;
 use tauri::State;
 
 #[derive(Clone)]
-struct AppState {
-    paths: AppPaths,
+pub(crate) struct AppState {
+    pub(crate) paths: AppPaths,
     read_only: bool,
     gpu_info: Arc<OnceLock<platform::gpu::GpuInfo>>,
     running_scan_jobs: Arc<Mutex<HashSet<i64>>>,
@@ -1721,6 +1722,7 @@ pub fn run() {
             get_runtime_status,
             cancel_scan,
             remove_root,
+            portability::remap_root_cmd,
             list_roots,
             list_subdirectories,
             load_user_config,
