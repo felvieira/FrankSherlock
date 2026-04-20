@@ -1723,6 +1723,7 @@ pub fn run() {
             cancel_scan,
             remove_root,
             portability::remap_root_cmd,
+            portability::export_catalog_cmd,
             list_roots,
             list_subdirectories,
             load_user_config,
