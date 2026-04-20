@@ -1,3 +1,6 @@
+# Local development worktrees (not shipped)
+.worktrees/
+
 # Python
 __pycache__/
 *.py[cod]
