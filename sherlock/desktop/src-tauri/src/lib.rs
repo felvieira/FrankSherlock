@@ -1725,6 +1725,8 @@ pub fn run() {
             portability::remap_root_cmd,
             portability::export_catalog_cmd,
             portability::import_catalog_cmd,
+            portability::get_portable_root_cmd,
+            portability::set_portable_root_cmd,
             list_roots,
             list_subdirectories,
             load_user_config,

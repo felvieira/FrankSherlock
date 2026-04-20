@@ -185,6 +185,36 @@ pub async fn import_catalog_cmd(
         .map_err(|e| e.to_string())
 }
 
+/// Read the configured portable root (if any) from user_config.
+#[tauri::command]
+pub async fn get_portable_root_cmd() -> Result<Option<String>, String> {
+    let cfg = crate::config::load_user_config().map_err(|e| e.to_string())?;
+    Ok(cfg.get("portableRoot").and_then(|v| v.as_str()).map(|s| s.to_string()))
+}
+
+/// Persist the portable root to user_config. Pass `None` to clear it.
+/// Changes take effect on the next app launch.
+#[tauri::command]
+pub async fn set_portable_root_cmd(portable_root: Option<String>) -> Result<(), String> {
+    use serde_json::json;
+    let mut cfg = crate::config::load_user_config().map_err(|e| e.to_string())?;
+    let map = cfg.as_object_mut().ok_or("user_config is not a JSON object")?;
+    match portable_root {
+        Some(s) if !s.trim().is_empty() => {
+            // Validate the path exists and is a directory.
+            let p = std::path::Path::new(&s);
+            if !p.is_dir() {
+                return Err(format!("portable root is not a directory: {s}"));
+            }
+            map.insert("portableRoot".to_string(), json!(s));
+        }
+        _ => {
+            map.remove("portableRoot");
+        }
+    }
+    crate::config::save_user_config(&cfg).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod export_tests {
     use super::*;
