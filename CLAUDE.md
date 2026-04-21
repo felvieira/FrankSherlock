@@ -64,6 +64,8 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 | `query_parser.rs` | Natural language query parsing (media type, dates, confidence) |
 | `runtime.rs` | Ollama/nvidia-smi status gathering |
 | `platform/` | OS abstraction: clipboard, GPU detection, Python venv paths, executable lookup |
+| `similarity.rs` | dHash Hamming + Jaccard description overlap + `combined_similarity` (85/15 visual/textual) used by duplicate detection and Find Similar |
+| `find_similar.rs` | "More like this" ranked query over the catalog, scoped to matching `media_type`, with early-exit pruning via Hamming upper bound |
 
 ## Architecture Principles
 
