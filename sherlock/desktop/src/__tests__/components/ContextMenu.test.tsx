@@ -18,6 +18,7 @@ const baseProps = {
   onRename: vi.fn(),
   onEditMetadata: vi.fn(),
   onProperties: vi.fn(),
+  onFindSimilar: vi.fn(),
   onDelete: vi.fn(),
   onAddToAlbum: vi.fn(),
   onCreateAlbumFromSelection: vi.fn(),
@@ -151,5 +152,18 @@ describe("ContextMenu", () => {
     render(<ContextMenu {...baseProps} selectedCount={1} extractedText="ocr" onCopyOcrText={onCopyOcrText} />);
     await user.click(screen.getByText("Copy OCR Text"));
     expect(onCopyOcrText).toHaveBeenCalledOnce();
+  });
+
+  it("renders Find similar when exactly one item is selected", () => {
+    const onFindSimilar = vi.fn();
+    render(<ContextMenu {...baseProps} selectedCount={1} onFindSimilar={onFindSimilar} />);
+    const btn = screen.getByRole("menuitem", { name: /find similar/i });
+    btn.click();
+    expect(onFindSimilar).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides Find similar when multiple items are selected", () => {
+    render(<ContextMenu {...baseProps} selectedCount={3} onFindSimilar={vi.fn()} />);
+    expect(screen.queryByRole("menuitem", { name: /find similar/i })).not.toBeInTheDocument();
   });
 });

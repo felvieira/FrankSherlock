@@ -23,7 +23,7 @@ const MAX_LIMIT: u32 = 200;
 ///
 /// If the filesystem is read-only (e.g. sandbox, mounted RO), falls back to
 /// opening the database in read-only mode so queries still work.
-fn open_conn(db_path: &Path) -> AppResult<Connection> {
+pub(crate) fn open_conn(db_path: &Path) -> AppResult<Connection> {
     match try_open_rw(db_path) {
         Ok(conn) => Ok(conn),
         Err(ref e) if is_readonly_error(e) => {
