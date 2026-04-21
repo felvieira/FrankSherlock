@@ -324,3 +324,15 @@ export type ReclusterProgress = {
   processed: number;
   result: ClusterResult | null;
 };
+
+export interface SimilarResult {
+  fileId: number;
+  rootId: number;
+  relPath: string;
+  absPath: string;
+  filename: string;
+  mediaType: string;
+  description: string;
+  thumbPath: string | null;
+  score: number;
+}
