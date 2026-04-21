@@ -1,17 +1,9 @@
 //! Ranked "find similar" query using dHash + description similarity.
+use crate::db::open_conn;
 use crate::error::{AppError, AppResult};
 use crate::similarity::{combined_similarity, hamming_distance};
-use rusqlite::{params, Connection};
+use rusqlite::params;
 use std::path::Path;
-
-/// Local connection helper mirroring `db::open_conn` (which is private).
-/// Sets busy_timeout and foreign_keys on every connection.
-fn open_conn(db_path: &Path) -> AppResult<Connection> {
-    let conn = Connection::open(db_path)?;
-    conn.pragma_update(None, "busy_timeout", 5000)?;
-    conn.pragma_update(None, "foreign_keys", "ON")?;
-    Ok(conn)
-}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
