@@ -1,0 +1,79 @@
+/* ── Remap root modal ─────────────────────────────────────── */
+.remap-root-modal {
+  width: min(520px, 92%);
+}
+
+.remap-root-subtle {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+  word-break: break-all;
+}
+
+.remap-root-subtle code {
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+}
+
+.remap-root-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}
+
+.remap-root-field span {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.remap-root-field input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+}
+
+.remap-root-field input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.remap-root-field input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.remap-root-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+}
+
+.remap-root-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  word-break: break-word;
+}
+
+.remap-root-success {
+  color: var(--success, #2a7a2a);
+  font-size: var(--font-size-sm);
+  margin: 0 0 10px;
+}

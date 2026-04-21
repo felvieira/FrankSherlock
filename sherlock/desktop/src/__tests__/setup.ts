@@ -24,9 +24,11 @@ vi.mock("@tauri-apps/api/window", () => ({
 // Mock @tauri-apps/plugin-dialog
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
+  save: vi.fn(),
 }));
 
 // Mock @tauri-apps/plugin-opener
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),
+  openPath: vi.fn(),
 }));

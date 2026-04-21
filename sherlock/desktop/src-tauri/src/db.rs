@@ -3791,6 +3791,112 @@ fn build_exact_group(fingerprint: &str, files: &mut [DuplicateFile]) -> Duplicat
     }
 }
 
+#[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemapReport {
+    pub roots_updated: usize,
+    pub files_updated: usize,
+    pub scan_jobs_updated: usize,
+}
+
+/// Rewrite `root_path` and all dependent `abs_path` columns when a root
+/// moves (drive letter change, directory rename).
+///
+/// Paths are compared byte-for-byte; callers must canonicalize (trailing
+/// separator, case) before calling.
+///
+/// All `scan_jobs` rows for the root are rewritten, including historical
+/// completed jobs, so path-keyed lookups continue to work after the move.
+///
+/// Fails if `new_root_path` collides with another existing root, if the
+/// old root is not found, or if the prefix rewrite would leave some files
+/// with stale paths (indicating caller/data drift — the whole transaction
+/// is rolled back).
+pub fn remap_root(
+    db_path: &Path,
+    old_root_path: &str,
+    new_root_path: &str,
+) -> AppResult<RemapReport> {
+    if old_root_path == new_root_path {
+        return Ok(RemapReport::default());
+    }
+    let mut conn = open_conn(db_path)?;
+    // IMMEDIATE locks the database for writes up front, avoiding a TOCTOU
+    // race between the collision check and the UPDATE.
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+    // Collision check.
+    let collides: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM roots WHERE root_path = ?1)",
+        params![new_root_path],
+        |r| r.get::<_, i64>(0).map(|v| v != 0),
+    )?;
+    if collides {
+        return Err(AppError::InvalidPath(format!(
+            "remap target already exists as a root: {new_root_path}"
+        )));
+    }
+
+    // Find the root id AND fetch the canonical stored root_path from the
+    // same row. Using the canonical value (not the caller's argument) as
+    // the prefix defends against subtle mismatches (trailing slash, case)
+    // that would otherwise produce silent zero-row updates.
+    let (root_id, canonical_root_path): (i64, String) = match tx.query_row(
+        "SELECT id, root_path FROM roots WHERE root_path = ?1",
+        params![old_root_path],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ) {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            return Err(AppError::InvalidPath(format!(
+                "no such root: {old_root_path}"
+            )));
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let roots_updated = tx.execute(
+        "UPDATE roots SET root_path = ?1 WHERE id = ?2",
+        params![new_root_path, root_id],
+    )?;
+
+    // Count files for this root so we can detect silent prefix mismatches
+    // (e.g. drifted abs_path data where the stored prefix doesn't match
+    // the root's current root_path).
+    let expected_files: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM files WHERE root_id = ?1",
+        params![root_id],
+        |r| r.get(0),
+    )?;
+
+    // Rewrite only the prefix of abs_path to avoid clobbering substrings
+    // that match elsewhere in the string. Use the canonical stored
+    // root_path as the prefix.
+    let files_updated = tx.execute(
+        "UPDATE files SET abs_path = ?1 || substr(abs_path, length(?2) + 1)
+         WHERE root_id = ?3 AND substr(abs_path, 1, length(?2)) = ?2",
+        params![new_root_path, canonical_root_path, root_id],
+    )?;
+
+    if files_updated as i64 != expected_files {
+        return Err(AppError::InvalidPath(format!(
+            "remap rewrote {files_updated} of {expected_files} file paths; abs_path prefix mismatch — aborting"
+        )));
+    }
+
+    let scan_jobs_updated = tx.execute(
+        "UPDATE scan_jobs SET root_path = ?1 WHERE root_id = ?2",
+        params![new_root_path, root_id],
+    )?;
+
+    tx.commit()?;
+    Ok(RemapReport {
+        roots_updated,
+        files_updated,
+        scan_jobs_updated,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -6869,5 +6975,218 @@ mod tests {
             |r| r.get(0),
         )
         .expect("file id")
+    }
+
+    #[test]
+    fn remap_root_updates_root_and_abs_paths() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite");
+        init_database(&db_path).unwrap();
+
+        // Seed a root with one file.
+        let root_id = upsert_root(&db_path, "D:\\Photos").unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO files (root_id, rel_path, filename, abs_path, mtime_ns, size_bytes, fingerprint, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, 'fp', 0)",
+            rusqlite::params![root_id, "a/b.jpg", "b.jpg", "D:\\Photos\\a\\b.jpg"],
+        ).unwrap();
+        drop(conn);
+
+        // Act.
+        let changed = remap_root(&db_path, "D:\\Photos", "E:\\Photos").unwrap();
+        assert_eq!(changed.roots_updated, 1);
+        assert_eq!(changed.files_updated, 1);
+
+        // Assert.
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let root_path: String = conn.query_row(
+            "SELECT root_path FROM roots WHERE id = ?1",
+            rusqlite::params![root_id],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(root_path, "E:\\Photos");
+
+        let abs: String = conn.query_row(
+            "SELECT abs_path FROM files WHERE root_id = ?1",
+            rusqlite::params![root_id],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(abs, "E:\\Photos\\a\\b.jpg");
+    }
+
+    #[test]
+    fn remap_root_rejects_collision_with_existing_root() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite");
+        init_database(&db_path).unwrap();
+        upsert_root(&db_path, "D:\\A").unwrap();
+        upsert_root(&db_path, "D:\\B").unwrap();
+
+        let err = remap_root(&db_path, "D:\\A", "D:\\B");
+        assert!(err.is_err(), "remap onto another existing root must fail");
+    }
+
+    #[test]
+    fn remap_root_prefix_only_defense() {
+        // Two files under D:\Photos — one with the root prefix in the
+        // middle of the filename. Only the leading prefix must be rewritten.
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite");
+        init_database(&db_path).unwrap();
+
+        let root_id = upsert_root(&db_path, "D:\\Photos").unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO files (root_id, rel_path, filename, abs_path, mtime_ns, size_bytes, fingerprint, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, 'fp1', 0)",
+            rusqlite::params![root_id, "a/b.jpg", "b.jpg", "D:\\Photos\\a\\b.jpg"],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO files (root_id, rel_path, filename, abs_path, mtime_ns, size_bytes, fingerprint, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, 'fp2', 0)",
+            rusqlite::params![
+                root_id,
+                "notes_D_Photos_backup.txt",
+                "notes_D_Photos_backup.txt",
+                "D:\\Photos\\notes_D_Photos_backup.txt",
+            ],
+        ).unwrap();
+        drop(conn);
+
+        let changed = remap_root(&db_path, "D:\\Photos", "E:\\Photos").unwrap();
+        assert_eq!(changed.roots_updated, 1);
+        assert_eq!(changed.files_updated, 2);
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let abs_b: String = conn
+            .query_row(
+                "SELECT abs_path FROM files WHERE rel_path = 'a/b.jpg'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(abs_b, "E:\\Photos\\a\\b.jpg");
+
+        // Only the leading prefix must be rewritten — the substring
+        // "D_Photos" embedded in the filename must NOT be touched.
+        let abs_notes: String = conn
+            .query_row(
+                "SELECT abs_path FROM files WHERE rel_path = 'notes_D_Photos_backup.txt'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(abs_notes, "E:\\Photos\\notes_D_Photos_backup.txt");
+    }
+
+    #[test]
+    fn remap_root_updates_scan_jobs_counter() {
+        // Historical completed scan_jobs rows must also be rewritten so
+        // path-keyed lookups continue to work after the move.
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite");
+        init_database(&db_path).unwrap();
+
+        let root_id = upsert_root(&db_path, "D:\\X").unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO scan_jobs (
+                root_id, root_path, status, scan_marker,
+                total_files, processed_files, added, modified, moved, unchanged, deleted,
+                started_at, updated_at
+            ) VALUES (?1, ?2, 'completed', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
+            rusqlite::params![root_id, "D:\\X"],
+        )
+        .unwrap();
+        drop(conn);
+
+        let changed = remap_root(&db_path, "D:\\X", "E:\\X").unwrap();
+        assert_eq!(changed.scan_jobs_updated, 1);
+
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let stored: String = conn
+            .query_row(
+                "SELECT root_path FROM scan_jobs WHERE root_id = ?1",
+                rusqlite::params![root_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "E:\\X");
+    }
+
+    #[test]
+    fn remap_root_noop_when_old_equals_new() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite");
+        init_database(&db_path).unwrap();
+        let root_id = upsert_root(&db_path, "D:\\X").unwrap();
+
+        let changed = remap_root(&db_path, "D:\\X", "D:\\X").unwrap();
+        assert_eq!(changed.roots_updated, 0);
+        assert_eq!(changed.files_updated, 0);
+        assert_eq!(changed.scan_jobs_updated, 0);
+
+        // Row unchanged.
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let stored: String = conn
+            .query_row(
+                "SELECT root_path FROM roots WHERE id = ?1",
+                rusqlite::params![root_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "D:\\X");
+    }
+
+    #[test]
+    fn remap_root_rolls_back_on_prefix_mismatch() {
+        // Simulate data drift: a file whose abs_path does NOT start with
+        // the root's root_path. The UPDATE will rewrite 0 rows while
+        // COUNT(*) returns 1, so the remap must error AND rollback.
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.sqlite");
+        init_database(&db_path).unwrap();
+
+        let root_id = upsert_root(&db_path, "D:\\X").unwrap();
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO files (root_id, rel_path, filename, abs_path, mtime_ns, size_bytes, fingerprint, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, 'fp', 0)",
+            rusqlite::params![root_id, "foo.jpg", "foo.jpg", "C:\\somewhere\\foo.jpg"],
+        ).unwrap();
+        drop(conn);
+
+        let err = remap_root(&db_path, "D:\\X", "E:\\X");
+        assert!(
+            err.is_err(),
+            "prefix mismatch must fail so the caller knows to investigate"
+        );
+
+        // Rollback: root_path untouched, file abs_path untouched.
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let root_path: String = conn
+            .query_row(
+                "SELECT root_path FROM roots WHERE id = ?1",
+                rusqlite::params![root_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(root_path, "D:\\X");
+
+        let abs: String = conn
+            .query_row(
+                "SELECT abs_path FROM files WHERE root_id = ?1",
+                rusqlite::params![root_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(abs, "C:\\somewhere\\foo.jpg");
     }
 }

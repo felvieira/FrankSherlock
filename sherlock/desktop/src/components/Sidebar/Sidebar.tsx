@@ -27,6 +27,7 @@ type SidebarProps = {
   onRescanRoot: (root: RootInfo) => void;
   onRefreshRoot: (root: RootInfo) => void;
   onCopyRootPath: (root: RootInfo) => void;
+  onRemapRoot: (root: RootInfo) => void;
   onDetectFaces: (root: RootInfo) => void;
   onCancelFaceDetect: () => void;
   onCancelScan: (scan: ScanJobStatus) => void;
@@ -41,6 +42,8 @@ type SidebarProps = {
   onFindDuplicates?: () => void;
   onOpenPdfPasswords?: () => void;
   onOpenFaces?: () => void;
+  onExportCatalog?: () => void;
+  onImportCatalog?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -53,12 +56,13 @@ export default function Sidebar({
   roots, selectedRootId, activeScans, dbStats, readOnly,
   setupReady, albums, smartFolders, activeAlbumName, activeSmartFolderId,
   selectedSubdir, faceProgress, onSelectSubdir,
-  onSelectRoot, onDeleteRoot, onRescanRoot, onRefreshRoot, onCopyRootPath, onPickAndScan,
+  onSelectRoot, onDeleteRoot, onRescanRoot, onRefreshRoot, onCopyRootPath, onRemapRoot, onPickAndScan,
   onDetectFaces, onCancelFaceDetect,
   onCancelScan, onResumeScan,
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
+  onExportCatalog, onImportCatalog,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
 }: SidebarProps) {
@@ -107,6 +111,7 @@ export default function Sidebar({
                   onRescan={() => onRescanRoot(root)}
                   onRefresh={() => onRefreshRoot(root)}
                   onCopyPath={() => onCopyRootPath(root)}
+                  onRemap={() => onRemapRoot(root)}
                   onDetectFaces={!readOnly ? () => onDetectFaces(root) : undefined}
                   onCancelScan={scan?.status === "running" ? () => onCancelScan(scan) : undefined}
                   onResumeScan={scan?.status === "interrupted" ? () => onResumeScan(scan) : undefined}
@@ -167,7 +172,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onOpenPdfPasswords || onOpenFaces || onCheckUpdates) && (
+      {(onFindDuplicates || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -199,6 +204,26 @@ export default function Sidebar({
                 title="Browse images with detected faces"
               >
                 Faces
+              </button>
+            )}
+            {onExportCatalog && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onExportCatalog}
+                title="Export the catalog (DB + thumbnails + classifications) to a zip file"
+              >
+                Export Catalog…
+              </button>
+            )}
+            {onImportCatalog && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onImportCatalog}
+                title="Restore a previously exported catalog"
+              >
+                Import Catalog…
               </button>
             )}
             {onCheckUpdates && (

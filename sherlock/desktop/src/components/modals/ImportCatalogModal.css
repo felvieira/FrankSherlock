@@ -1,0 +1,37 @@
+/* ── Import catalog modal ─────────────────────────────────── */
+.import-catalog-modal {
+  width: min(520px, 92%);
+}
+
+.import-catalog-warning {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+}
+
+.import-catalog-status {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  margin: 0 0 10px;
+}
+
+.import-catalog-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+}
+
+.import-catalog-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  word-break: break-word;
+}

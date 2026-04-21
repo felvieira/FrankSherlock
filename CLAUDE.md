@@ -64,6 +64,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 | `query_parser.rs` | Natural language query parsing (media type, dates, confidence) |
 | `runtime.rs` | Ollama/nvidia-smi status gathering |
 | `platform/` | OS abstraction: clipboard, GPU detection, Python venv paths, executable lookup |
+| `portability.rs` | Data portability commands: `remap_root` (rewrite `abs_path` after drive-letter / folder moves), `export_catalog` / `import_catalog` (zip round-trip of db + caches, with zip-slip defense), `get/set_portable_root` (store catalog under `<root>/.frank_sherlock/` instead of the default data dir) |
 
 ## Architecture Principles
 
@@ -86,7 +87,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 
 ## Important Paths
 
-- Database: `~/.local/share/frank_sherlock/db/index.sqlite`
+- Database: `~/.local/share/frank_sherlock/db/index.sqlite` (or `<portableRoot>/.frank_sherlock/db/index.sqlite` when portable mode is on — set via `portableRoot` in user config)
 - Thumbnails: `~/.local/share/frank_sherlock/cache/thumbnails/`
 - Classification cache: `~/.local/share/frank_sherlock/cache/classifications/`
 - Surya venv: `~/.local/share/frank_sherlock/surya_venv/`

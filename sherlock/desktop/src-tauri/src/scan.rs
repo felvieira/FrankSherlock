@@ -735,6 +735,12 @@ fn collect_image_probes_incremental(
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
+            // Never descend into our own portable catalog directory.
+            // In portable mode the catalog lives at <root>/.frank_sherlock/,
+            // so indexing it would cause the app to index its own state.
+            if is_portable_catalog_dir(e) {
+                return false;
+            }
             // Skip child root subtrees before descending
             if e.file_type().is_dir() && e.path() != root {
                 return !excluded_prefixes.iter().any(|p| e.path().starts_with(p));
@@ -897,6 +903,17 @@ fn fingerprint_file(path: &Path, size: u64) -> AppResult<String> {
     hasher.update(&tail);
 
     Ok(hex::encode(hasher.finalize()))
+}
+
+/// Returns true if the walkdir entry is the app's own portable catalog
+/// directory (`.frank_sherlock`), which must never be indexed.
+///
+/// In portable mode the catalog (db + thumbnail/classification caches) lives
+/// inside the scanned root under `.frank_sherlock/`. The scanner must skip
+/// that subtree or it would try to index its own SQLite file, cached
+/// thumbnails, etc.
+fn is_portable_catalog_dir(entry: &walkdir::DirEntry) -> bool {
+    entry.file_type().is_dir() && entry.file_name().to_str() == Some(".frank_sherlock")
 }
 
 fn is_supported_file(path: &Path) -> bool {
@@ -1179,5 +1196,94 @@ mod tests {
         assert!(!filenames.contains(&"spacer.gif"));
         assert!(!filenames.contains(&"favicon.png"));
         assert_eq!(probes.len(), 2);
+    }
+
+    #[test]
+    fn walker_skips_frank_sherlock_portable_dir() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        fs::write(root.join("photo.jpg"), b"\xFF\xD8\xFF\xE0fake jpeg header padding padding padding padding padding").unwrap();
+        fs::create_dir_all(root.join("subdir")).unwrap();
+        fs::write(root.join("subdir/more.png"), b"\x89PNG\r\n\x1A\nfake png bytes padding padding padding padding").unwrap();
+
+        // The portable catalog subtree — must be skipped entirely.
+        fs::create_dir_all(root.join(".frank_sherlock/db")).unwrap();
+        fs::write(root.join(".frank_sherlock/db/index.sqlite"), b"sqlite").unwrap();
+        fs::create_dir_all(root.join(".frank_sherlock/cache/thumbnails")).unwrap();
+        fs::write(root.join(".frank_sherlock/cache/thumbnails/x.jpg"), b"\xFF\xD8\xFF\xE0fake jpeg header padding padding padding padding padding").unwrap();
+
+        // Collect all file paths the walker would visit, mirroring the production
+        // `.filter_entry` logic using `is_portable_catalog_dir`.
+        let visited: Vec<std::path::PathBuf> = walkdir::WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| !is_portable_catalog_dir(e))
+            .filter_map(|entry| entry.ok())
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.path().to_path_buf())
+            .collect();
+
+        let names: Vec<String> = visited
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+
+        assert!(
+            names.contains(&"photo.jpg".to_string()),
+            "expected to visit photo.jpg, got {names:?}"
+        );
+        assert!(
+            names.contains(&"more.png".to_string()),
+            "expected to visit more.png, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"index.sqlite".to_string()),
+            "must NOT visit files under .frank_sherlock, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"x.jpg".to_string()),
+            "must NOT visit files under .frank_sherlock, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn is_portable_catalog_dir_recognises_dot_frank_sherlock() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".frank_sherlock")).unwrap();
+        std::fs::create_dir_all(dir.path().join("photos")).unwrap();
+        std::fs::write(
+            dir.path().join("a.jpg"),
+            b"padding padding padding padding padding padding",
+        )
+        .unwrap();
+
+        let entries: Vec<_> = walkdir::WalkDir::new(dir.path())
+            .min_depth(1)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .collect();
+
+        let dot_fs = entries
+            .iter()
+            .find(|e| e.file_name().to_string_lossy() == ".frank_sherlock")
+            .expect("should find");
+        let photos = entries
+            .iter()
+            .find(|e| e.file_name().to_string_lossy() == "photos")
+            .expect("should find");
+        let a_jpg = entries
+            .iter()
+            .find(|e| e.file_name().to_string_lossy() == "a.jpg")
+            .expect("should find");
+
+        assert!(is_portable_catalog_dir(dot_fs));
+        assert!(!is_portable_catalog_dir(photos));
+        assert!(!is_portable_catalog_dir(a_jpg));
     }
 }
