@@ -37,6 +37,7 @@ import RenameModal from "./components/modals/RenameModal";
 import HelpModal from "./components/modals/HelpModal";
 import EditMetadataModal from "./components/modals/EditMetadataModal";
 import PropertiesModal from "./components/modals/PropertiesModal";
+import SimilarResultsModal from "./components/modals/SimilarResultsModal";
 import ModelInfoModal from "./components/modals/ModelInfoModal";
 import CreateAlbumModal from "./components/modals/CreateAlbumModal";
 import CreateSmartFolderModal from "./components/modals/CreateSmartFolderModal";
@@ -83,6 +84,7 @@ export default function App() {
   const [editMetadataItem, setEditMetadataItem] = useState<SearchItem | null>(null);
   const [facePreviewItems, setFacePreviewItems] = useState<SearchItem[]>([]);
   const [propertiesItem, setPropertiesItem] = useState<SearchItem | null>(null);
+  const [similarSource, setSimilarSource] = useState<{ fileId: number; label: string } | null>(null);
   const [forceShowSetup, setForceShowSetup] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [pdfPasswordsMode, setPdfPasswordsMode] = useState(false);
@@ -437,6 +439,15 @@ export default function App() {
     if (idx < items.length) setPropertiesItem(items[idx]);
   }
 
+  function handleContextFindSimilar() {
+    setContextMenu(null);
+    if (selectedIndices.size !== 1) return;
+    const idx = [...selectedIndices][0];
+    if (idx >= items.length) return;
+    const item = items[idx];
+    setSimilarSource({ fileId: item.id, label: fileName(item.relPath) });
+  }
+
   async function handleDeleteFiles() {
     if (!confirmDeleteFiles) return;
     const ids = confirmDeleteFiles.map(f => f.id);
@@ -642,6 +653,7 @@ export default function App() {
           onRename={handleContextRename}
           onEditMetadata={handleContextEditMetadata}
           onProperties={handleContextProperties}
+          onFindSimilar={handleContextFindSimilar}
           onDelete={handleContextDelete}
           onAddToAlbum={handleAddToAlbum}
           onCreateAlbumFromSelection={handleCreateAlbumFromSelection}
@@ -659,6 +671,13 @@ export default function App() {
         <PropertiesModal
           fileId={propertiesItem.id}
           onClose={() => setPropertiesItem(null)}
+        />
+      )}
+      {similarSource && (
+        <SimilarResultsModal
+          sourceFileId={similarSource.fileId}
+          sourceLabel={similarSource.label}
+          onClose={() => setSimilarSource(null)}
         />
       )}
       {albumManager.showCreateAlbum && (

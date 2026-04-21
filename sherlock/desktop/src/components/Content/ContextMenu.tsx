@@ -16,6 +16,7 @@ type Props = {
   onRename: () => void;
   onEditMetadata: () => void;
   onProperties: () => void;
+  onFindSimilar: () => void;
   onDelete: () => void;
   onAddToAlbum: (albumId: number) => void;
   onCreateAlbumFromSelection: () => void;
@@ -25,7 +26,7 @@ type Props = {
 export default function ContextMenu({
   x, y, selectedCount, albums, description, extractedText, confidence,
   onCopyPath, onCopyDescription, onCopyOcrText, onRename, onEditMetadata, onProperties,
-  onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
+  onFindSimilar, onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
 }: Props) {
   const isUnclassified = confidence !== null && confidence === 0;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -111,6 +112,12 @@ export default function ContextMenu({
       {selectedCount === 1 && (
         <button className="context-menu-item" role="menuitem" onClick={onProperties}>
           <span>Properties</span>
+        </button>
+      )}
+
+      {selectedCount === 1 && (
+        <button className="context-menu-item" role="menuitem" onClick={onFindSimilar}>
+          <span>Find similar</span>
         </button>
       )}
 
