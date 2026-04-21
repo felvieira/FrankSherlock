@@ -1,0 +1,37 @@
+/* ── Export catalog modal ─────────────────────────────────── */
+.export-catalog-modal {
+  width: min(520px, 92%);
+}
+
+.export-catalog-status {
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  margin: 0 0 10px;
+}
+
+.export-catalog-path {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+  word-break: break-all;
+}
+
+.export-catalog-path code {
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+}
+
+.export-catalog-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  word-break: break-word;
+}

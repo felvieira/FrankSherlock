@@ -39,11 +39,29 @@ impl AppPaths {
 }
 
 pub fn resolve_paths() -> AppResult<AppPaths> {
-    let base_dir = match env::var(DATA_DIR_ENV) {
-        Ok(value) if !value.trim().is_empty() => PathBuf::from(value),
-        _ => default_base_dir()?,
-    };
+    // Read portable_root from user_config (if present, valid, and non-empty).
+    let portable_root = portable_root_from_user_config();
+    resolve_paths_for_root(portable_root.as_deref())
+}
 
+/// Resolve paths, optionally placing the catalog under `<portable_root>/.frank_sherlock/`.
+/// Precedence:
+///   1. `portable_root.join(".frank_sherlock")` if provided.
+///   2. `DATA_DIR_ENV` if set and non-empty.
+///   3. `default_base_dir()`.
+pub fn resolve_paths_for_root(portable_root: Option<&Path>) -> AppResult<AppPaths> {
+    let base_dir = if let Some(root) = portable_root {
+        root.join(".frank_sherlock")
+    } else {
+        match env::var(DATA_DIR_ENV) {
+            Ok(v) if !v.trim().is_empty() => PathBuf::from(v),
+            _ => default_base_dir()?,
+        }
+    };
+    build_paths(base_dir)
+}
+
+fn build_paths(base_dir: PathBuf) -> AppResult<AppPaths> {
     let db_dir = base_dir.join("db");
     let cache_dir = base_dir.join("cache");
     let classification_cache_dir = cache_dir.join("classifications");
@@ -68,6 +86,24 @@ pub fn resolve_paths() -> AppResult<AppPaths> {
         models_dir,
         face_crops_dir,
     })
+}
+
+/// Read the `portableRoot` field from user_config. Returns `None` if unset,
+/// empty, malformed, or points to a path that does not exist.
+fn portable_root_from_user_config() -> Option<PathBuf> {
+    let cfg = load_user_config().ok()?;
+    let raw = cfg.get("portableRoot")?.as_str()?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let p = PathBuf::from(raw);
+    if !p.is_dir() {
+        eprintln!(
+            "portableRoot in user_config does not exist or is not a directory: {raw}"
+        );
+        return None;
+    }
+    Some(p)
 }
 
 pub fn prepare_dirs(paths: &AppPaths) -> AppResult<()> {
@@ -255,6 +291,45 @@ mod tests {
         std::fs::write(&file, "hello").expect("write");
         let err = expand_and_canonicalize(file.to_str().unwrap());
         assert!(err.is_err());
+    }
+
+    #[test]
+    fn resolve_paths_portable_uses_root_subdir() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::remove_var(DATA_DIR_ENV);
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("MyDrive");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let paths = resolve_paths_for_root(Some(&root)).unwrap();
+        assert!(paths.base_dir.starts_with(&root), "base_dir {:?} should start with {:?}", paths.base_dir, root);
+        assert_eq!(paths.base_dir.file_name().unwrap(), ".frank_sherlock");
+        assert!(paths.db_file.starts_with(&paths.base_dir));
+        assert!(paths.thumbnails_dir.starts_with(&paths.base_dir));
+    }
+
+    #[test]
+    fn resolve_paths_portable_precedence_over_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let env_dir = tempfile::tempdir().unwrap();
+        env::set_var(DATA_DIR_ENV, env_dir.path().join("env_data").as_os_str());
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Portable");
+        std::fs::create_dir_all(&root).unwrap();
+
+        let paths = resolve_paths_for_root(Some(&root)).unwrap();
+        assert!(paths.base_dir.starts_with(&root), "portable_root must win over DATA_DIR_ENV");
+        env::remove_var(DATA_DIR_ENV);
+    }
+
+    #[test]
+    fn resolve_paths_portable_none_falls_back_to_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let env_dir = tempfile::tempdir().unwrap();
+        env::set_var(DATA_DIR_ENV, env_dir.path().join("env_data").as_os_str());
+        let paths = resolve_paths_for_root(None).unwrap();
+        assert!(paths.base_dir.starts_with(env_dir.path()));
+        env::remove_var(DATA_DIR_ENV);
     }
 
     #[test]

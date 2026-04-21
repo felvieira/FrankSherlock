@@ -24,6 +24,7 @@ const defaultProps = {
   onRescanRoot: vi.fn(),
   onRefreshRoot: vi.fn(),
   onCopyRootPath: vi.fn(),
+  onRemapRoot: vi.fn(),
   onDetectFaces: vi.fn(),
   onCancelFaceDetect: vi.fn(),
   onPickAndScan: vi.fn(),
