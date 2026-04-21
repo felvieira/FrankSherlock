@@ -4,6 +4,7 @@ mod db;
 mod error;
 mod exif;
 mod face;
+mod find_similar;
 mod llm;
 mod models;
 mod pdf;
@@ -1765,7 +1766,8 @@ pub fn run() {
             list_faces_for_person,
             unassign_face_from_person,
             reassign_faces_to_person,
-            set_representative_face
+            set_representative_face,
+            find_similar::find_similar_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
