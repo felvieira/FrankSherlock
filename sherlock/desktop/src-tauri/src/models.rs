@@ -184,6 +184,16 @@ pub struct SavedSearch {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SavedSearchAlert {
+    pub id: i64,
+    pub name: String,
+    pub query: String,
+    pub new_count: i64,
+    pub max_new_id: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanSummary {
     pub root_id: i64,
     pub root_path: String,

@@ -63,6 +63,7 @@ import { useFaceDetection } from "./hooks/useFaceDetection";
 import { useAlbumManager } from "./hooks/useAlbumManager";
 import { useSmartFolderManager } from "./hooks/useSmartFolderManager";
 import { useDuplicatesManager } from "./hooks/useDuplicatesManager";
+import { useSavedSearchAlerts } from "./hooks/useSavedSearchAlerts";
 import "./app.css";
 
 const POLL_MS = 1200;
@@ -122,6 +123,11 @@ export default function App() {
   const albumManager = useAlbumManager({ onNotice: setNotice, onError: setError });
   const smartFolderManager = useSmartFolderManager({ onNotice: setNotice, onError: setError });
   const duplicates = useDuplicatesManager({ onNotice: setNotice, onError: setError });
+  useSavedSearchAlerts({
+    onAlert: (name, count, _alertQuery) => {
+      setNotice(`📌 "${name}": ${count} new match${count !== 1 ? "es" : ""} — click to search`);
+    },
+  });
 
   /* ── Selection ── */
   const {

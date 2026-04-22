@@ -725,6 +725,13 @@ fn set_saved_search_notify(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn check_saved_search_alerts_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<models::SavedSearchAlert>, String> {
+    db::check_saved_search_alerts(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
 // ── Reorder commands ────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1883,6 +1890,7 @@ pub fn run() {
             create_saved_search,
             delete_saved_search,
             set_saved_search_notify,
+            check_saved_search_alerts_cmd,
             reorder_roots,
             reorder_albums,
             reorder_smart_folders,

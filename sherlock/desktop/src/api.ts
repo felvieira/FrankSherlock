@@ -32,6 +32,9 @@ import type {
   SearchRequest,
   SearchResponse,
   SavedSearch,
+  SavedSearchAlert,
+  GpsFile,
+  NearbyResult,
   TagRule,
   TimelineBucket,
   TripSummary,
@@ -213,6 +216,18 @@ export async function deleteSavedSearch(searchId: number): Promise<void> {
 
 export async function setSavedSearchNotify(searchId: number, notify: boolean): Promise<void> {
   return invoke<void>("set_saved_search_notify", { searchId, notify });
+}
+
+export async function checkSavedSearchAlerts(): Promise<SavedSearchAlert[]> {
+  return invoke<SavedSearchAlert[]>("check_saved_search_alerts_cmd");
+}
+
+export async function listGpsFiles(rootId?: number | null): Promise<GpsFile[]> {
+  return invoke<GpsFile[]>("list_gps_files_cmd", { rootId: rootId ?? null });
+}
+
+export async function findNearby(lat: number, lon: number, limit = 50): Promise<NearbyResult[]> {
+  return invoke<NearbyResult[]>("find_nearby_cmd", { lat, lon, limit });
 }
 
 // ── Duplicates ──────────────────────────────────────────────────────

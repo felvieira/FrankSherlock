@@ -9,8 +9,9 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
     FileProperties, FileRecordUpsert, HealthCheckOutcome, ParsedQuery, PdfPassword,
-    ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, ScanJobState, ScanJobStatus, SearchItem,
-    SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder, SubdirEntry, TagRule,
+    ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, SavedSearchAlert, ScanJobState,
+    ScanJobStatus, SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder,
+    SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
 
@@ -2656,6 +2657,68 @@ pub fn set_saved_search_notify(
         params![notify as i64, search_id],
     )?;
     Ok(())
+}
+
+/// For each saved search with notify=1, check if there are new file matches
+/// (id > last_match_id) since the last check. Returns alerts for searches
+/// that have new results. Updates last_match_id and last_checked_at.
+pub fn check_saved_search_alerts(db_path: &Path) -> AppResult<Vec<SavedSearchAlert>> {
+    let conn = open_conn(db_path)?;
+    let now = now_epoch_secs();
+
+    // Load all notify=1 searches
+    let searches: Vec<(i64, String, String, i64)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, name, query, last_match_id FROM saved_searches
+             WHERE notify = 1 AND query != ''",
+        )?;
+        let x: Vec<_> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .filter_map(Result::ok)
+            .collect();
+        x
+    };
+
+    let mut alerts = Vec::new();
+    for (id, name, query, last_match_id) in searches {
+        // Convert to FTS5 query format (adds prefix wildcards etc.)
+        let fts_query = to_fts_query(query.trim());
+        if fts_query.is_empty() {
+            continue;
+        }
+        let result: Option<(i64, i64)> = conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(MAX(f.id), 0) FROM files f
+                 JOIN files_fts ON files_fts.rowid = f.id
+                 WHERE files_fts MATCH ?1 AND f.deleted_at IS NULL AND f.id > ?2",
+                params![fts_query, last_match_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+
+        if let Some((new_count, max_new_id)) = result {
+            if new_count > 0 {
+                alerts.push(SavedSearchAlert {
+                    id,
+                    name: name.clone(),
+                    query: query.clone(),
+                    new_count,
+                    max_new_id,
+                });
+                // Update last_match_id and last_checked_at
+                conn.execute(
+                    "UPDATE saved_searches SET last_match_id = ?1, last_checked_at = ?2 WHERE id = ?3",
+                    params![max_new_id, now, id],
+                )?;
+            } else {
+                // Still update last_checked_at even when no new results
+                conn.execute(
+                    "UPDATE saved_searches SET last_checked_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
+        }
+    }
+    Ok(alerts)
 }
 
 // ── PDF Passwords ───────────────────────────────────────────────────
@@ -7817,5 +7880,59 @@ mod tests {
         let folders = list_smart_folders(&db_path).expect("list");
         assert_eq!(folders.len(), 1);
         assert_eq!(folders[0].id, sf.id);
+    }
+
+    // -----------------------------------------------------------------------
+    // check_saved_search_alerts tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn check_saved_search_alerts_returns_matches() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        // Use upsert_file_record so FTS is populated correctly
+        for i in 0..2i64 {
+            let mut rec = sample_record(root, &format!("a{i}.jpg"), &format!("fpa{i}"));
+            rec.description = "beach sunset".to_string();
+            upsert_file_record(&db_path, &rec).expect("upsert");
+        }
+
+        // Create a saved search with notify=1, last_match_id=0
+        let conn = open_conn(&db_path).expect("conn");
+        conn.execute(
+            "INSERT INTO saved_searches (name, query, notify, last_match_id, last_checked_at)
+             VALUES ('beach alert', 'beach', 1, 0, 0)",
+            [],
+        ).expect("insert saved search");
+        drop(conn);
+
+        let alerts = check_saved_search_alerts(&db_path).expect("check");
+        assert_eq!(alerts.len(), 1, "should have one alert, got {alerts:?}");
+        assert_eq!(alerts[0].name, "beach alert");
+        assert!(alerts[0].new_count > 0);
+    }
+
+    #[test]
+    fn check_saved_search_alerts_skips_notify_false() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        let mut rec = sample_record(root, "b.jpg", "fp9");
+        rec.description = "sunset".to_string();
+        upsert_file_record(&db_path, &rec).expect("upsert");
+
+        let conn = open_conn(&db_path).expect("conn");
+        conn.execute(
+            "INSERT INTO saved_searches (name, query, notify, last_match_id, last_checked_at)
+             VALUES ('sunset watch', 'sunset', 0, 0, 0)",
+            [],
+        ).expect("insert saved search");
+        drop(conn);
+
+        let alerts = check_saved_search_alerts(&db_path).expect("check");
+        assert!(alerts.is_empty());
     }
 }
