@@ -5298,11 +5298,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (22 migrations applied → version 22)
+        // Verify user_version is set (23 migrations applied → version 23)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 22);
+        assert_eq!(version, 23);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -5346,8 +5346,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 22 migrations (indices 0..21), so user_version should be 22
-        assert_eq!(version, 22);
+        // We have 23 migrations (indices 0..22), so user_version should be 23
+        assert_eq!(version, 23);
     }
 
     #[test]
