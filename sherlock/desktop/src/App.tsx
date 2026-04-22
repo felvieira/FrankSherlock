@@ -2,9 +2,9 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   cancelScan, copyFilesToClipboard, createFaceSmartAlbum, createSavedSearch, deleteFiles,
-  deleteSavedSearch, ensureDatabase, generateYearReview, getCliFolderPath, getFileMetadata,
-  getFileProperties, listRoots, listSavedSearches, removeRoot, renameFile, reorderRoots,
-  setSavedSearchNotify, startScan, updateFileMetadata,
+  deleteSavedSearch, ensureDatabase, findNearby, generateYearReview, getCliFolderPath,
+  getFileMetadata, getFileProperties, listRoots, listSavedSearches, removeRoot, renameFile,
+  reorderRoots, setSavedSearchNotify, startScan, updateFileMetadata,
 } from "./api";
 import type {
   DbStats,
@@ -27,6 +27,7 @@ import Content from "./components/Content/Content";
 import DuplicatesView from "./components/Content/DuplicatesView";
 import FacesView from "./components/Content/FacesView";
 import PdfPasswordsView from "./components/Content/PdfPasswordsView";
+import MapView from "./components/Content/MapView";
 import ContextMenu from "./components/Content/ContextMenu";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ToastContainer from "./components/Toasts/ToastContainer";
@@ -101,6 +102,8 @@ export default function App() {
   const [showImportCatalog, setShowImportCatalog] = useState(false);
   const [showTagRules, setShowTagRules] = useState(false);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [mapMode, setMapMode] = useState(false);
+  const [contextMenuHasGps, setContextMenuHasGps] = useState(false);
 
   /* ── Directory tree: derived from query ── */
   const selectedSubdir = useMemo(() => {
@@ -316,6 +319,7 @@ export default function App() {
     if (faces.facesMode) return "Faces";
     if (pdfPasswordsMode) return "PDF Passwords";
     if (duplicates.duplicatesMode) return "Find Duplicates";
+    if (mapMode) return "Map";
     if (activeAlbumName) return activeAlbumName;
     const sf = smartFolderManager.smartFolders.find(f => f.id === smartFolderManager.activeSmartFolderId);
     if (sf) return sf.name;
@@ -326,12 +330,13 @@ export default function App() {
       }
     }
     return null;
-  }, [faces.facesMode, duplicates.duplicatesMode, activeAlbumName, smartFolderManager.activeSmartFolderId, smartFolderManager.smartFolders, selectedRootId, roots, selectedSubdir, pdfPasswordsMode]);
+  }, [faces.facesMode, duplicates.duplicatesMode, activeAlbumName, smartFolderManager.activeSmartFolderId, smartFolderManager.smartFolders, selectedRootId, roots, selectedSubdir, pdfPasswordsMode, mapMode]);
 
   /* ── Mode switching coordination ── */
   function enterDuplicatesMode(threshold?: number | null) {
     setPdfPasswordsMode(false);
     faces.setFacesMode(false);
+    setMapMode(false);
     duplicates.onFindDuplicates(threshold);
   }
 
@@ -339,12 +344,21 @@ export default function App() {
     faces.setFacesMode(true);
     duplicates.setDuplicatesMode(false);
     setPdfPasswordsMode(false);
+    setMapMode(false);
   }
 
   function enterPdfPasswordsMode() {
     setPdfPasswordsMode(true);
     duplicates.setDuplicatesMode(false);
     faces.setFacesMode(false);
+    setMapMode(false);
+  }
+
+  function enterMapMode() {
+    setMapMode(true);
+    duplicates.setDuplicatesMode(false);
+    faces.setFacesMode(false);
+    setPdfPasswordsMode(false);
   }
 
   /* ── Handlers ── */
@@ -396,6 +410,7 @@ export default function App() {
     e.preventDefault();
     if (!selectedIndices.has(idx)) selectOnly(idx);
     setContextMenu({ x: e.clientX, y: e.clientY });
+    setContextMenuHasGps(false);
 
     const effectiveSelection = selectedIndices.has(idx) ? selectedIndices : new Set([idx]);
     if (effectiveSelection.size === 1) {
@@ -404,6 +419,11 @@ export default function App() {
         getFileMetadata(item.id)
           .then((meta) => setContextMenuMeta({ description: meta.description, extractedText: meta.extractedText }))
           .catch(() => setContextMenuMeta(null));
+        getFileProperties(item.id)
+          .then((props) => {
+            setContextMenuHasGps(props.latitude != null && props.longitude != null);
+          })
+          .catch(() => {});
       }
     } else {
       setContextMenuMeta(null);
@@ -474,6 +494,12 @@ export default function App() {
     setSimilarSource({ fileId: item.id, label: fileName(item.relPath) });
   }
 
+  function handleContextFindNearby() {
+    setContextMenu(null);
+    // Open the map — the user can see the photo's location among all GPS pins
+    enterMapMode();
+  }
+
   async function handleDeleteFiles() {
     if (!confirmDeleteFiles) return;
     const ids = confirmDeleteFiles.map(f => f.id);
@@ -536,6 +562,7 @@ export default function App() {
     duplicates.setDuplicatesMode(false);
     setPdfPasswordsMode(false);
     faces.setFacesMode(false);
+    setMapMode(false);
   }
 
   function handleAddToAlbum(albumId: number) {
@@ -561,6 +588,7 @@ export default function App() {
     duplicates.setDuplicatesMode(false);
     setPdfPasswordsMode(false);
     faces.setFacesMode(false);
+    setMapMode(false);
   }
 
   function handleCreateSmartFolderConfirm(name: string) {
@@ -725,6 +753,7 @@ export default function App() {
           description={contextMenuMeta?.description ?? null}
           extractedText={contextMenuMeta?.extractedText ?? null}
           confidence={selectedIndices.size === 1 ? (items[[...selectedIndices][0]]?.confidence ?? null) : null}
+          hasGps={contextMenuHasGps}
           onCopyPath={handleContextCopyPath}
           onCopyDescription={handleContextCopyDescription}
           onCopyOcrText={handleContextCopyOcrText}
@@ -732,6 +761,7 @@ export default function App() {
           onEditMetadata={handleContextEditMetadata}
           onProperties={handleContextProperties}
           onFindSimilar={handleContextFindSimilar}
+          onFindNearby={handleContextFindNearby}
           onDelete={handleContextDelete}
           onAddToAlbum={handleAddToAlbum}
           onCreateAlbumFromSelection={handleCreateAlbumFromSelection}
@@ -816,6 +846,7 @@ export default function App() {
             duplicates.setDuplicatesMode(false);
             setPdfPasswordsMode(false);
             faces.setFacesMode(false);
+            setMapMode(false);
           }}
           onDeleteRoot={(root) => setConfirmDeleteRoot(root)}
           onRescanRoot={(root) => scanManager.onRescanRoot(root, setup, readOnly)}
@@ -854,6 +885,7 @@ export default function App() {
             }
           }}
           onOpenTagRules={() => setShowTagRules(true)}
+          onOpenMap={enterMapMode}
           onOpenPdfPasswords={enterPdfPasswordsMode}
           onOpenFaces={enterFacesMode}
           onExportCatalog={() => setShowExportCatalog(true)}
@@ -945,6 +977,31 @@ export default function App() {
             onBack={() => setPdfPasswordsMode(false)}
             onNotice={setNotice}
             onError={setError}
+          />
+        ) : mapMode ? (
+          <MapView
+            onBack={() => setMapMode(false)}
+            onSelectFiles={(ids) => {
+              setMapMode(false);
+              const newSel = new Set<number>();
+              ids.forEach((id) => {
+                const idx = items.findIndex((it) => it.id === id);
+                if (idx >= 0) newSel.add(idx);
+              });
+              if (newSel.size > 0) replaceSelection(newSel, [...newSel][0], [...newSel][0]);
+            }}
+            onFindNearby={async (lat, lon) => {
+              try {
+                const results = await findNearby(lat, lon, 50);
+                if (results.length === 0) {
+                  setNotice("No nearby photos found");
+                } else {
+                  setNotice(`${results.length} nearby photo${results.length !== 1 ? "s" : ""} within ~10°`);
+                }
+              } catch (err) {
+                setError(errorMessage(err));
+              }
+            }}
           />
         ) : duplicates.duplicatesMode && duplicates.duplicatesData ? (
           <DuplicatesView

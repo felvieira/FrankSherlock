@@ -17,24 +17,51 @@
 
 /* ── Main area ────────────────────────────────────────────── */
 .main-area {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: flex;
   overflow: hidden;
 }
 
+/* Sidebar: animated slide-in/out — stays in flex flow so content
+   never collapses (the old display:none approach broke grid column
+   auto-placement, pushing content into the 0px first column). */
+.main-area > .sidebar {
+  width: 260px;
+  min-width: 260px;
+  flex-shrink: 0;
+  transition: width 0.22s ease, min-width 0.22s ease, border-right-color 0.22s ease;
+}
+
+.main-area.sidebar-collapsed > .sidebar {
+  width: 0;
+  min-width: 0;
+  border-right-color: transparent;
+}
+
 @media (max-width: 960px) {
-  .main-area {
-    grid-template-columns: 0px 1fr;
-  }
-
-  .main-area .sidebar {
-    display: none;
+  .main-area > .sidebar {
+    width: 0;
+    min-width: 0;
+    border-right-color: transparent;
   }
 }
 
-.main-area.sidebar-collapsed {
-  grid-template-columns: 0px 1fr;
+/* Content panels fill remaining width and animate on mount */
+.main-area > .content,
+.main-area > .tool-view,
+.main-area > .map-view {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  animation: panel-enter 0.2s ease both;
 }
-.main-area.sidebar-collapsed .sidebar {
-  display: none;
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -10,6 +10,7 @@ type Props = {
   description: string | null;
   extractedText: string | null;
   confidence: number | null;
+  hasGps: boolean;
   onCopyPath: () => void;
   onCopyDescription: () => void;
   onCopyOcrText: () => void;
@@ -17,6 +18,7 @@ type Props = {
   onEditMetadata: () => void;
   onProperties: () => void;
   onFindSimilar: () => void;
+  onFindNearby: () => void;
   onDelete: () => void;
   onAddToAlbum: (albumId: number) => void;
   onCreateAlbumFromSelection: () => void;
@@ -25,8 +27,9 @@ type Props = {
 
 export default function ContextMenu({
   x, y, selectedCount, albums, description, extractedText, confidence,
+  hasGps,
   onCopyPath, onCopyDescription, onCopyOcrText, onRename, onEditMetadata, onProperties,
-  onFindSimilar, onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
+  onFindSimilar, onFindNearby, onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
 }: Props) {
   const isUnclassified = confidence !== null && confidence === 0;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -118,6 +121,12 @@ export default function ContextMenu({
       {selectedCount === 1 && (
         <button className="context-menu-item" role="menuitem" onClick={onFindSimilar}>
           <span>Find similar</span>
+        </button>
+      )}
+
+      {selectedCount === 1 && hasGps && (
+        <button className="context-menu-item" role="menuitem" onClick={onFindNearby}>
+          <span>Find nearby</span>
         </button>
       )}
 

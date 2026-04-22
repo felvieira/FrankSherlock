@@ -47,6 +47,7 @@ type SidebarProps = {
   onImportCatalog?: () => void;
   onGenerateYearReview?: () => void;
   onOpenTagRules?: () => void;
+  onOpenMap?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -70,7 +71,7 @@ export default function Sidebar({
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
-  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules,
+  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules, onOpenMap,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
   onTimelineQueryChange,
@@ -227,7 +228,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
+      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenMap || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -279,6 +280,16 @@ export default function Sidebar({
                 title="Browse images with detected faces"
               >
                 Faces
+              </button>
+            )}
+            {onOpenMap && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onOpenMap}
+                title="Browse photos on a map by GPS location"
+              >
+                Map
               </button>
             )}
             {onExportCatalog && (
