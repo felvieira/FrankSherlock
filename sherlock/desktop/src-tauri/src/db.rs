@@ -395,6 +395,15 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
             ALTER TABLE albums ADD COLUMN tag TEXT NOT NULL DEFAULT '';
             "#,
         ),
+        // Migration 22: GPS lat/lon stored for map view
+        M::up(
+            r#"
+            ALTER TABLE files ADD COLUMN gps_lat REAL;
+            ALTER TABLE files ADD COLUMN gps_lon REAL;
+            CREATE INDEX IF NOT EXISTS idx_files_gps ON files(gps_lat, gps_lon)
+            WHERE gps_lat IS NOT NULL;
+            "#,
+        ),
     ]);
 
     migrations
@@ -961,7 +970,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             scan_marker, updated_at, deleted_at, location_text, dhash,
             duration_secs, video_width, video_height, video_codec, audio_codec,
             camera_model, lens_model, iso, shutter_speed, aperture, time_of_day,
-            blur_score, dominant_color, qr_codes
+            blur_score, dominant_color, qr_codes, gps_lat, gps_lon
         ) VALUES (
             ?1, ?2, ?3, ?4,
             ?5, ?6, ?7, ?8,
@@ -969,7 +978,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             ?14, ?15, NULL, ?16, ?17,
             ?18, ?19, ?20, ?21, ?22,
             ?23, ?24, ?25, ?26, ?27, ?28,
-            ?29, ?30, ?31
+            ?29, ?30, ?31, ?32, ?33
         )
         ON CONFLICT(root_id, rel_path) DO UPDATE SET
             filename = excluded.filename,
@@ -1001,7 +1010,9 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             time_of_day = CASE WHEN excluded.time_of_day != '' THEN excluded.time_of_day ELSE files.time_of_day END,
             blur_score = COALESCE(excluded.blur_score, files.blur_score),
             dominant_color = COALESCE(excluded.dominant_color, files.dominant_color),
-            qr_codes = CASE WHEN excluded.qr_codes != '' THEN excluded.qr_codes ELSE files.qr_codes END
+            qr_codes = CASE WHEN excluded.qr_codes != '' THEN excluded.qr_codes ELSE files.qr_codes END,
+            gps_lat = COALESCE(excluded.gps_lat, files.gps_lat),
+            gps_lon = COALESCE(excluded.gps_lon, files.gps_lon)
         "#,
         params![
             record.root_id,
@@ -1035,6 +1046,8 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             record.blur_score,
             record.dominant_color,
             record.qr_codes,
+            record.gps_lat,
+            record.gps_lon,
         ],
     )?;
 
@@ -4386,6 +4399,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         }
     }
 
@@ -4436,6 +4451,8 @@ mod tests {
                 blur_score: None,
                 dominant_color: None,
                 qr_codes: String::new(),
+                gps_lat: None,
+                gps_lon: None,
             };
             upsert_file_record(&db_path, &rec).expect("upsert");
         }
@@ -4494,6 +4511,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4545,6 +4564,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4599,6 +4620,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         touch_file_scan_marker(&db_path, root_id, "a.jpg", 2).expect("touch");
@@ -4652,6 +4675,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         let files = load_existing_files(&db_path, root_id).expect("load");
@@ -4696,6 +4721,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         mark_missing_as_deleted(&db_path, root_id, 99).expect("delete");
@@ -5117,6 +5144,8 @@ mod tests {
                 blur_score: None,
                 dominant_color: None,
                 qr_codes: String::new(),
+                gps_lat: None,
+                gps_lon: None,
             };
             upsert_file_record(db_path, &rec).expect("upsert");
         }
@@ -6188,6 +6217,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -6223,6 +6254,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec2).expect("upsert");
 
@@ -7880,6 +7913,25 @@ mod tests {
         let folders = list_smart_folders(&db_path).expect("list");
         assert_eq!(folders.len(), 1);
         assert_eq!(folders[0].id, sf.id);
+    }
+
+    // -----------------------------------------------------------------------
+    // GPS migration test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn migration_adds_gps_lat_lon_columns() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let conn = open_conn(&db_path).expect("conn");
+        let mut stmt = conn.prepare("PRAGMA table_info(files)").expect("pragma");
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .expect("query")
+            .filter_map(Result::ok)
+            .collect();
+        assert!(cols.iter().any(|c| c == "gps_lat"), "missing gps_lat, got {cols:?}");
+        assert!(cols.iter().any(|c| c == "gps_lon"), "missing gps_lon, got {cols:?}");
     }
 
     // -----------------------------------------------------------------------
