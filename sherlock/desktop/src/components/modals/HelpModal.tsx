@@ -77,6 +77,32 @@ export default function HelpModal({ onClose }: Props) {
         </div>
 
         <div className="help-section">
+          <h4>Camera filter</h4>
+          <div className="help-examples">
+            <code>camera:Sony</code>
+            <code>camera:&quot;Canon EOS R5&quot;</code>
+          </div>
+        </div>
+
+        <div className="help-section">
+          <h4>Lens filter</h4>
+          <div className="help-examples">
+            <code>lens:50mm</code>
+            <code>lens:&quot;RF 24-70mm&quot;</code>
+          </div>
+        </div>
+
+        <div className="help-section">
+          <h4>Time of day</h4>
+          <div className="help-examples">
+            <code>time:morning</code>
+            <code>time:golden</code>
+            <code>time:night</code>
+          </div>
+          <p className="help-note-inline">dawn · morning · noon · afternoon · evening · night</p>
+        </div>
+
+        <div className="help-section">
           <h4>Combined</h4>
           <div className="help-examples">
             <code>anime between 2023 and 2024</code>

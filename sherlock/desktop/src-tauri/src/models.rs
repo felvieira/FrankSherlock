@@ -102,6 +102,12 @@ pub struct ParsedQuery {
     pub person_id: Option<i64>,
     #[serde(default)]
     pub person_name: Option<String>,
+    #[serde(default)]
+    pub camera_model: Option<String>,
+    #[serde(default)]
+    pub lens_model: Option<String>,
+    #[serde(default)]
+    pub time_of_day: Option<String>,
 }
 
 impl ParsedQuery {
@@ -118,6 +124,9 @@ impl ParsedQuery {
             subdir: None,
             person_id: None,
             person_name: None,
+            camera_model: None,
+            lens_model: None,
+            time_of_day: None,
         }
     }
 }
@@ -275,6 +284,12 @@ pub struct FileRecordUpsert {
     pub video_height: Option<u32>,
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
+    pub camera_model: String,
+    pub lens_model: String,
+    pub iso: Option<i64>,
+    pub shutter_speed: Option<f64>,
+    pub aperture: Option<f64>,
+    pub time_of_day: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

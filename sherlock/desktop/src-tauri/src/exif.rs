@@ -3,6 +3,95 @@ use std::sync::OnceLock;
 
 use reverse_geocoder::ReverseGeocoder;
 
+/// Lightweight EXIF data extracted during scan — persisted to DB columns added in Migration 13.
+#[derive(Debug, Clone, Default)]
+pub struct ExifScanData {
+    pub camera_model: String,
+    pub lens_model: String,
+    pub iso: Option<i64>,
+    pub shutter_speed: Option<f64>,
+    pub aperture: Option<f64>,
+    pub time_of_day: String,
+}
+
+/// Classify an hour (0–23) to a named time-of-day bucket.
+pub fn classify_time_of_day(hour: u32) -> String {
+    match hour {
+        0..=4 => "night",
+        5..=7 => "dawn",
+        8..=11 => "morning",
+        12..=13 => "noon",
+        14..=17 => "afternoon",
+        18..=20 => "evening",
+        _ => "night",
+    }
+    .to_string()
+}
+
+/// Extract camera/lens/ISO/shutter/aperture/time_of_day from file EXIF.
+/// Returns `ExifScanData::default()` on any error.
+pub fn extract_scan_exif(path: &Path) -> ExifScanData {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return ExifScanData::default(),
+    };
+    let mut buf = std::io::BufReader::new(file);
+    let exif = match exif::Reader::new().read_from_container(&mut buf) {
+        Ok(e) => e,
+        Err(_) => return ExifScanData::default(),
+    };
+
+    let get_str = |tag: exif::Tag| -> String {
+        exif.get_field(tag, exif::In::PRIMARY)
+            .map(|f| {
+                let s = f.display_value().to_string();
+                s.trim().trim_matches('"').to_string()
+            })
+            .filter(|s| !s.is_empty())
+            .unwrap_or_default()
+    };
+
+    let camera_model = get_str(exif::Tag::Model);
+    let lens_model = get_str(exif::Tag::LensModel);
+
+    let iso = exif
+        .get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY)
+        .and_then(|f| match &f.value {
+            exif::Value::Short(v) => v.first().map(|x| *x as i64),
+            exif::Value::Long(v) => v.first().map(|x| *x as i64),
+            _ => f.display_value().to_string().trim().parse::<i64>().ok(),
+        });
+
+    let shutter_speed = exif
+        .get_field(exif::Tag::ExposureTime, exif::In::PRIMARY)
+        .and_then(|f| match &f.value {
+            exif::Value::Rational(v) if !v.is_empty() => Some(v[0].to_f64()),
+            _ => None,
+        });
+
+    let aperture = exif
+        .get_field(exif::Tag::FNumber, exif::In::PRIMARY)
+        .and_then(|f| match &f.value {
+            exif::Value::Rational(v) if !v.is_empty() => Some(v[0].to_f64()),
+            _ => None,
+        });
+
+    let time_of_day = exif
+        .get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)
+        .and_then(|f| {
+            // EXIF datetime format: "2023:01:15 14:32:45"
+            let s = f.display_value().to_string();
+            s.split_whitespace()
+                .nth(1)
+                .and_then(|t| t.split(':').next())
+                .and_then(|h| h.parse::<u32>().ok())
+                .map(classify_time_of_day)
+        })
+        .unwrap_or_default();
+
+    ExifScanData { camera_model, lens_model, iso, shutter_speed, aperture, time_of_day }
+}
+
 static GEOCODER: OnceLock<ReverseGeocoder> = OnceLock::new();
 
 fn geocoder() -> &'static ReverseGeocoder {
@@ -316,5 +405,33 @@ mod tests {
         let result = apply_orientation(img, 2);
         assert_eq!(result.width(), 4);
         assert_eq!(result.height(), 2);
+    }
+
+    #[test]
+    fn classify_time_of_day_buckets() {
+        assert_eq!(classify_time_of_day(2), "night");
+        assert_eq!(classify_time_of_day(6), "dawn");
+        assert_eq!(classify_time_of_day(10), "morning");
+        assert_eq!(classify_time_of_day(12), "noon");
+        assert_eq!(classify_time_of_day(15), "afternoon");
+        assert_eq!(classify_time_of_day(19), "evening");
+        assert_eq!(classify_time_of_day(23), "night");
+    }
+
+    #[test]
+    fn extract_scan_exif_nonexistent_returns_default() {
+        let data = extract_scan_exif(Path::new("/nonexistent/file.jpg"));
+        assert!(data.camera_model.is_empty());
+        assert!(data.iso.is_none());
+        assert!(data.time_of_day.is_empty());
+    }
+
+    #[test]
+    fn extract_scan_exif_non_image_returns_default() {
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(tmp.path(), b"not an image").expect("write");
+        let data = extract_scan_exif(tmp.path());
+        assert!(data.camera_model.is_empty());
+        assert!(data.iso.is_none());
     }
 }

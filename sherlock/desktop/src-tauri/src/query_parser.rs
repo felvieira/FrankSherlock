@@ -77,6 +77,36 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         working_query
     };
 
+    // Extract camera:"model" or camera:model
+    let mut camera_model: Option<String> = None;
+    let camera_re = Regex::new(r#"(?i)\bcamera:(?:"([^"]+)"|(\S+))"#).expect("valid regex");
+    let working_query = if let Some(cap) = camera_re.captures(&working_query) {
+        camera_model = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().to_string());
+        camera_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
+    // Extract lens:"model" or lens:value
+    let mut lens_model: Option<String> = None;
+    let lens_re = Regex::new(r#"(?i)\blens:(?:"([^"]+)"|(\S+))"#).expect("valid regex");
+    let working_query = if let Some(cap) = lens_re.captures(&working_query) {
+        lens_model = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().to_string());
+        lens_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
+    // Extract time:value (night/dawn/morning/noon/afternoon/evening)
+    let mut time_of_day: Option<String> = None;
+    let time_re = Regex::new(r#"(?i)\btime:(\S+)"#).expect("valid regex");
+    let working_query = if let Some(cap) = time_re.captures(&working_query) {
+        time_of_day = cap.get(1).map(|m| m.as_str().to_lowercase());
+        time_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
     let mut media_types = Vec::new();
     let mut min_confidence = None;
     let mut date_from = None;
@@ -118,6 +148,15 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
     if person_id.is_some() || person_name.is_some() {
         score += 0.3;
     }
+    if camera_model.is_some() {
+        score += 0.2;
+    }
+    if lens_model.is_some() {
+        score += 0.2;
+    }
+    if time_of_day.is_some() {
+        score += 0.15;
+    }
 
     // Strip matched media keywords from query text, longest patterns first
     let mut query_text = working_query.clone();
@@ -141,6 +180,9 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         subdir,
         person_id,
         person_name,
+        camera_model,
+        lens_model,
+        time_of_day,
     }
 }
 
@@ -456,5 +498,39 @@ mod tests {
         let parsed = parse_query("beach sunset");
         assert!(parsed.person_id.is_none());
         assert!(parsed.person_name.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // camera:/lens:/time: prefix tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parses_camera_and_lens_and_time_tokens() {
+        let parsed = parse_query(r#"beach camera:"iPhone 14 Pro" lens:50mm time:evening"#);
+        assert_eq!(parsed.camera_model.as_deref(), Some("iPhone 14 Pro"));
+        assert_eq!(parsed.lens_model.as_deref(), Some("50mm"));
+        assert_eq!(parsed.time_of_day.as_deref(), Some("evening"));
+        assert_eq!(parsed.query_text.trim(), "beach");
+    }
+
+    #[test]
+    fn parses_camera_simple_token() {
+        let parsed = parse_query("camera:Canon sunset");
+        assert_eq!(parsed.camera_model.as_deref(), Some("Canon"));
+        assert_eq!(parsed.query_text.trim(), "sunset");
+    }
+
+    #[test]
+    fn parses_time_token_lowercases() {
+        let parsed = parse_query("time:Evening");
+        assert_eq!(parsed.time_of_day.as_deref(), Some("evening"));
+    }
+
+    #[test]
+    fn no_camera_or_lens_or_time() {
+        let parsed = parse_query("beach sunset");
+        assert!(parsed.camera_model.is_none());
+        assert!(parsed.lens_model.is_none());
+        assert!(parsed.time_of_day.is_none());
     }
 }

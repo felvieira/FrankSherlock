@@ -1,9 +1,11 @@
+mod autocomplete;
 mod classify;
 mod config;
 mod db;
 mod error;
 mod exif;
 mod face;
+mod filters;
 mod find_similar;
 mod llm;
 mod models;
@@ -1612,6 +1614,36 @@ fn spawn_scan_worker_if_needed(
     });
 }
 
+/// Re-extract EXIF for up to 200 files per startup that are missing camera/lens data.
+/// Runs silently — errors are ignored to avoid blocking startup.
+fn backfill_exif_extras(db_path: &std::path::Path) -> error::AppResult<()> {
+    let conn = db::open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, abs_path FROM files
+         WHERE deleted_at IS NULL AND camera_model = '' AND lens_model = ''
+         ORDER BY id DESC LIMIT 200",
+    )?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .filter_map(Result::ok)
+        .collect();
+    for (id, path) in rows {
+        let meta = exif::extract_scan_exif(std::path::Path::new(&path));
+        if !meta.camera_model.is_empty() || meta.iso.is_some() {
+            let _ = conn.execute(
+                "UPDATE files SET camera_model = ?1, lens_model = ?2, iso = ?3,
+                                   shutter_speed = ?4, aperture = ?5, time_of_day = ?6
+                 WHERE id = ?7",
+                rusqlite::params![
+                    meta.camera_model, meta.lens_model, meta.iso,
+                    meta.shutter_speed, meta.aperture, meta.time_of_day, id
+                ],
+            );
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let (paths, read_only) = resolve_paths()
@@ -1622,6 +1654,7 @@ pub fn run() {
             if init_ok {
                 // Full read-write mode
                 db::recover_incomplete_scan_jobs(&paths.db_file).ok();
+                backfill_exif_extras(&paths.db_file).ok();
 
                 match db::startup_health_check(&paths.db_file, &paths.db_dir) {
                     Ok(HealthCheckOutcome::RestoredFromBackup) => {
@@ -1773,7 +1806,10 @@ pub fn run() {
             unassign_face_from_person,
             reassign_faces_to_person,
             set_representative_face,
-            find_similar::find_similar_cmd
+            find_similar::find_similar_cmd,
+            filters::list_cameras_cmd,
+            filters::list_lenses_cmd,
+            autocomplete::suggest_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

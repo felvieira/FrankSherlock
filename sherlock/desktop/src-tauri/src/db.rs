@@ -292,6 +292,19 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
             CREATE INDEX IF NOT EXISTS idx_people_name ON people(name COLLATE NOCASE);
             "#,
         ),
+        // Migration 13: EXIF camera/lens/ISO/shutter/aperture/time_of_day for filtering
+        M::up(
+            r#"
+            ALTER TABLE files ADD COLUMN camera_model TEXT NOT NULL DEFAULT '';
+            ALTER TABLE files ADD COLUMN lens_model TEXT NOT NULL DEFAULT '';
+            ALTER TABLE files ADD COLUMN iso INTEGER;
+            ALTER TABLE files ADD COLUMN shutter_speed REAL;
+            ALTER TABLE files ADD COLUMN aperture REAL;
+            ALTER TABLE files ADD COLUMN time_of_day TEXT NOT NULL DEFAULT '';
+            CREATE INDEX IF NOT EXISTS idx_files_camera_model ON files(camera_model);
+            CREATE INDEX IF NOT EXISTS idx_files_time_of_day ON files(time_of_day);
+            "#,
+        ),
     ]);
 
     migrations
@@ -856,13 +869,15 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             media_type, description, extracted_text, canonical_mentions,
             confidence, lang_hint, mtime_ns, size_bytes, fingerprint,
             scan_marker, updated_at, deleted_at, location_text, dhash,
-            duration_secs, video_width, video_height, video_codec, audio_codec
+            duration_secs, video_width, video_height, video_codec, audio_codec,
+            camera_model, lens_model, iso, shutter_speed, aperture, time_of_day
         ) VALUES (
             ?1, ?2, ?3, ?4,
             ?5, ?6, ?7, ?8,
             ?9, ?10, ?11, ?12, ?13,
             ?14, ?15, NULL, ?16, ?17,
-            ?18, ?19, ?20, ?21, ?22
+            ?18, ?19, ?20, ?21, ?22,
+            ?23, ?24, ?25, ?26, ?27, ?28
         )
         ON CONFLICT(root_id, rel_path) DO UPDATE SET
             filename = excluded.filename,
@@ -885,7 +900,13 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             video_width = excluded.video_width,
             video_height = excluded.video_height,
             video_codec = excluded.video_codec,
-            audio_codec = excluded.audio_codec
+            audio_codec = excluded.audio_codec,
+            camera_model = CASE WHEN excluded.camera_model != '' THEN excluded.camera_model ELSE files.camera_model END,
+            lens_model = CASE WHEN excluded.lens_model != '' THEN excluded.lens_model ELSE files.lens_model END,
+            iso = COALESCE(excluded.iso, files.iso),
+            shutter_speed = COALESCE(excluded.shutter_speed, files.shutter_speed),
+            aperture = COALESCE(excluded.aperture, files.aperture),
+            time_of_day = CASE WHEN excluded.time_of_day != '' THEN excluded.time_of_day ELSE files.time_of_day END
         "#,
         params![
             record.root_id,
@@ -910,6 +931,12 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             record.video_height,
             record.video_codec,
             record.audio_codec,
+            record.camera_model,
+            record.lens_model,
+            record.iso,
+            record.shutter_speed,
+            record.aperture,
+            record.time_of_day,
         ],
     )?;
 
@@ -1679,6 +1706,19 @@ fn search_images_normalized(
         bind_values.push(Value::Text(format!("%{pname}%")));
     }
 
+    if let Some(ref camera) = parsed.camera_model {
+        where_clauses.push("f.camera_model = ?".to_string());
+        bind_values.push(Value::Text(camera.clone()));
+    }
+    if let Some(ref lens) = parsed.lens_model {
+        where_clauses.push("f.lens_model = ?".to_string());
+        bind_values.push(Value::Text(lens.clone()));
+    }
+    if let Some(ref tod) = parsed.time_of_day {
+        where_clauses.push("f.time_of_day = ?".to_string());
+        bind_values.push(Value::Text(tod.clone()));
+    }
+
     let media_types = normalize_media_types(&request.media_types);
     if !media_types.is_empty() {
         let placeholders = vec!["?"; media_types.len()].join(", ");
@@ -1826,6 +1866,19 @@ fn search_like_fallback(
         );
         where_clauses.push("pp.name LIKE ? COLLATE NOCASE".to_string());
         bind_values.push(Value::Text(format!("%{pname}%")));
+    }
+
+    if let Some(ref camera) = parsed.camera_model {
+        where_clauses.push("f.camera_model = ?".to_string());
+        bind_values.push(Value::Text(camera.clone()));
+    }
+    if let Some(ref lens) = parsed.lens_model {
+        where_clauses.push("f.lens_model = ?".to_string());
+        bind_values.push(Value::Text(lens.clone()));
+    }
+    if let Some(ref tod) = parsed.time_of_day {
+        where_clauses.push("f.time_of_day = ?".to_string());
+        bind_values.push(Value::Text(tod.clone()));
     }
 
     let media_types = normalize_media_types(&request.media_types);
@@ -3933,6 +3986,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         }
     }
 
@@ -3974,6 +4033,12 @@ mod tests {
                 video_height: None,
                 video_codec: None,
                 audio_codec: None,
+                camera_model: String::new(),
+                lens_model: String::new(),
+                iso: None,
+                shutter_speed: None,
+                aperture: None,
+                time_of_day: String::new(),
             };
             upsert_file_record(&db_path, &rec).expect("upsert");
         }
@@ -4023,6 +4088,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4065,6 +4136,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4110,6 +4187,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         touch_file_scan_marker(&db_path, root_id, "a.jpg", 2).expect("touch");
@@ -4154,6 +4237,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         let files = load_existing_files(&db_path, root_id).expect("load");
@@ -4189,6 +4278,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         mark_missing_as_deleted(&db_path, root_id, 99).expect("delete");
@@ -4601,6 +4696,12 @@ mod tests {
                 video_height: None,
                 video_codec: None,
                 audio_codec: None,
+                camera_model: String::new(),
+                lens_model: String::new(),
+                iso: None,
+                shutter_speed: None,
+                aperture: None,
+                time_of_day: String::new(),
             };
             upsert_file_record(db_path, &rec).expect("upsert");
         }
@@ -4667,11 +4768,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (13 migrations applied → version 13)
+        // Verify user_version is set (14 migrations applied → version 14)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 13);
+        assert_eq!(version, 14);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -4715,8 +4816,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 13 migrations (indices 0..12), so user_version should be 13
-        assert_eq!(version, 13);
+        // We have 14 migrations (indices 0..13), so user_version should be 14
+        assert_eq!(version, 14);
     }
 
     #[test]
@@ -5663,6 +5764,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -5689,6 +5796,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         upsert_file_record(&db_path, &rec2).expect("upsert");
 

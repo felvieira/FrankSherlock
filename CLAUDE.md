@@ -39,7 +39,7 @@ From `sherlock/desktop/`:
 ```bash
 npm install                    # frontend deps
 cargo build                    # rust backend (from src-tauri/)
-cargo test                     # 322 unit tests
+cargo test                     # 363 unit tests
 npm run tauri:dev              # launch dev mode
 npm run test                   # 299 frontend tests
 npm run tauri:build            # produce AppImage/DMG/MSI
@@ -67,6 +67,8 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 | `portability.rs` | Data portability commands: `remap_root` (rewrite `abs_path` after drive-letter / folder moves), `export_catalog` / `import_catalog` (zip round-trip of db + caches, with zip-slip defense), `get/set_portable_root` (store catalog under `<root>/.frank_sherlock/` instead of the default data dir) |
 | `similarity.rs` | dHash Hamming + Jaccard description overlap + `combined_similarity` (85/15 visual/textual) used by duplicate detection and Find Similar |
 | `find_similar.rs` | "More like this" ranked query over the catalog, scoped to matching `media_type`, with early-exit pruning via Hamming upper bound |
+| `filters.rs` | Aggregation queries for filter UI — `list_cameras`, `list_lenses` returning ranked `FilterOption` lists |
+| `autocomplete.rs` | Ranked prefix-match suggestions from people, cameras, lenses, and canonical mentions — used by search bar typeahead |
 
 ## Architecture Principles
 

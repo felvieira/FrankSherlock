@@ -541,6 +541,12 @@ struct ThumbnailOnlyResult {
     thumb_path: Option<String>,
     location_text: String,
     dhash: Option<u64>,
+    camera_model: String,
+    lens_model: String,
+    iso: Option<i64>,
+    shutter_speed: Option<f64>,
+    aperture: Option<f64>,
+    time_of_day: String,
 }
 
 fn is_pdf_file(path: &Path) -> bool {
@@ -586,6 +592,12 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         crate::exif::extract_location(abs)
     };
 
+    let exif_scan: crate::exif::ExifScanData = if is_pdf || is_vid {
+        Default::default()
+    } else {
+        crate::exif::extract_scan_exif(abs)
+    };
+
     let (thumb_path, dhash) = match thumb_result {
         Some(tr) => (Some(tr.path), tr.dhash),
         None => (None, None),
@@ -595,6 +607,12 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         thumb_path,
         location_text: exif_location.location_text,
         dhash,
+        camera_model: exif_scan.camera_model,
+        lens_model: exif_scan.lens_model,
+        iso: exif_scan.iso,
+        shutter_speed: exif_scan.shutter_speed,
+        aperture: exif_scan.aperture,
+        time_of_day: exif_scan.time_of_day,
     }
 }
 
@@ -646,6 +664,12 @@ fn probe_to_minimal_record(
         video_height: video_meta.as_ref().and_then(|m| m.height),
         video_codec: video_meta.as_ref().and_then(|m| m.video_codec.clone()),
         audio_codec: video_meta.as_ref().and_then(|m| m.audio_codec.clone()),
+        camera_model: thumb_result.camera_model.clone(),
+        lens_model: thumb_result.lens_model.clone(),
+        iso: thumb_result.iso,
+        shutter_speed: thumb_result.shutter_speed,
+        aperture: thumb_result.aperture,
+        time_of_day: thumb_result.time_of_day.clone(),
     }
 }
 
@@ -1016,6 +1040,12 @@ mod tests {
             video_height: None,
             video_codec: None,
             audio_codec: None,
+            camera_model: String::new(),
+            lens_model: String::new(),
+            iso: None,
+            shutter_speed: None,
+            aperture: None,
+            time_of_day: String::new(),
         };
         db::upsert_file_record(&db_path, &rec).expect("upsert");
 
