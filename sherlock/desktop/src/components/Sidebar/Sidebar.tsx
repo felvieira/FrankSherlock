@@ -45,6 +45,7 @@ type SidebarProps = {
   onOpenFaces?: () => void;
   onExportCatalog?: () => void;
   onImportCatalog?: () => void;
+  onGenerateYearReview?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -64,7 +65,7 @@ export default function Sidebar({
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
-  onExportCatalog, onImportCatalog,
+  onExportCatalog, onImportCatalog, onGenerateYearReview,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
   onTimelineQueryChange,
@@ -182,7 +183,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
+      {(onFindDuplicates || onGenerateYearReview || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -194,6 +195,16 @@ export default function Sidebar({
                 title="Find duplicate files across all folders"
               >
                 Find Duplicates
+              </button>
+            )}
+            {onGenerateYearReview && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onGenerateYearReview}
+                title={`Generate a Year in Review album for ${new Date().getFullYear()}`}
+              >
+                Year in Review
               </button>
             )}
             {onOpenPdfPasswords && (

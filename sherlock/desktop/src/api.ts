@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Album,
+  Burst,
   ClusterResult,
   DbStats,
+  DedupStrategy,
   DeleteFilesResult,
   DuplicatesResponse,
+  EventSummary,
   FaceDetectProgress,
   FaceInfo,
   FileMetadata,
@@ -29,6 +32,7 @@ import type {
   SearchRequest,
   SearchResponse,
   TimelineBucket,
+  TripSummary,
   VenvProvisionStatus,
 } from "./types";
 
@@ -291,4 +295,42 @@ export async function suggestTags(prefix: string, limit = 8): Promise<Suggestion
 
 export async function listTimelineBuckets(): Promise<TimelineBucket[]> {
   return invoke<TimelineBucket[]>("list_timeline_buckets_cmd");
+}
+
+// ── Auto-clustering ──────────────────────────────────────────────────
+
+export async function recomputeEvents(): Promise<EventSummary[]> {
+  return invoke<EventSummary[]>("recompute_events_cmd");
+}
+
+export async function listEvents(): Promise<EventSummary[]> {
+  return invoke<EventSummary[]>("list_events_cmd");
+}
+
+export async function detectTrips(): Promise<TripSummary[]> {
+  return invoke<TripSummary[]>("detect_trips_cmd");
+}
+
+export async function listTrips(): Promise<TripSummary[]> {
+  return invoke<TripSummary[]>("list_trips_cmd");
+}
+
+export async function findBursts(): Promise<Burst[]> {
+  return invoke<Burst[]>("find_bursts_cmd");
+}
+
+export async function generateYearReview(year: number): Promise<number> {
+  return invoke<number>("generate_year_review_cmd", { year });
+}
+
+export async function setDedupPolicy(strategy: DedupStrategy): Promise<void> {
+  return invoke<void>("set_dedup_policy_cmd", { strategy });
+}
+
+export async function getDedupPolicy(): Promise<DedupStrategy | null> {
+  return invoke<DedupStrategy | null>("get_dedup_policy_cmd");
+}
+
+export async function applyDedupPolicy(): Promise<number> {
+  return invoke<number>("apply_dedup_policy_cmd");
 }

@@ -16,6 +16,24 @@
   opacity: 0.4;
 }
 
+/* ── Dedup policy row ────────────────────────────────────── */
+.dedup-policy-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dedup-policy-row select {
+  width: 140px;
+  font-size: var(--font-size-sm);
+}
+
+.dedup-policy-row button {
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+}
+
 /* ── Group card ──────────────────────────────────────────── */
 .dup-group {
   border: 1px solid var(--border-primary);

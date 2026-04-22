@@ -73,6 +73,7 @@ export default function Content({
           onTileClick={onTileClick}
           onTileDoubleClick={onTileDoubleClick}
           onTileContextMenu={onTileContextMenu}
+          collapseBursts={sortBy === "dateModified"}
         />
 
         {canLoadMore && (

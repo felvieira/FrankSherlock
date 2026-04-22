@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   cancelScan, copyFilesToClipboard, deleteFiles, ensureDatabase,
-  getCliFolderPath, getFileMetadata, getFileProperties, listRoots,
+  generateYearReview, getCliFolderPath, getFileMetadata, getFileProperties, listRoots,
   removeRoot, renameFile, reorderRoots, startScan, updateFileMetadata,
 } from "./api";
 import type {
@@ -784,6 +784,20 @@ export default function App() {
           onDetectFaces={faces.onDetectFaces}
           onCancelFaceDetect={faces.onCancelFaceDetect}
           onFindDuplicates={enterDuplicatesMode}
+          onGenerateYearReview={async () => {
+            try {
+              const year = new Date().getFullYear();
+              const albumId = await generateYearReview(year);
+              if (albumId > 0) {
+                setNotice(`Year in Review ${year} album created!`);
+                await albumManager.refreshAlbums();
+              } else {
+                setNotice(`No photos found for ${year}.`);
+              }
+            } catch (err) {
+              setError(errorMessage(err));
+            }
+          }}
           onOpenPdfPasswords={enterPdfPasswordsMode}
           onOpenFaces={enterFacesMode}
           onExportCatalog={() => setShowExportCatalog(true)}
@@ -859,6 +873,13 @@ export default function App() {
             onBack={duplicates.onBack}
             onSelectGroupDuplicates={duplicates.onSelectGroupDuplicates}
             onPreviewGroup={handleDuplicatesPreviewGroup}
+            onApplyDedupPolicy={async (strategy) => {
+              const { setDedupPolicy, applyDedupPolicy } = await import("./api");
+              await setDedupPolicy(strategy);
+              const count = await applyDedupPolicy();
+              setNotice(`Policy applied: ${count} file(s) marked for deletion.`);
+              await duplicates.refreshAfterDelete();
+            }}
           />
         ) : (
           <Content

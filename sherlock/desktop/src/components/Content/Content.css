@@ -116,6 +116,31 @@
   color: var(--text-primary);
 }
 
+/* ── Blur toggle button ──────────────────────────────────── */
+.toolbar-blur-toggle {
+  padding: 4px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.toolbar-blur-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.toolbar-blur-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
 /* ── Content body ─────────────────────────────────────────── */
 .content-body {
   flex: 1;
@@ -221,6 +246,36 @@
   pointer-events: none;
   line-height: 1.2;
   font-weight: 600;
+}
+
+/* Burst count badge — shown on burst cover photo */
+.image-tile-wrapper {
+  position: relative;
+}
+
+.burst-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.3);
+  cursor: pointer;
+  z-index: 2;
+  line-height: 1.4;
+  transition: background 0.1s;
+}
+
+.burst-badge:hover {
+  background: rgba(0, 100, 220, 0.85);
+}
+
+.burst-badge-expanded {
+  background: rgba(0, 100, 220, 0.72);
 }
 
 /* Filename bar — always visible at bottom */

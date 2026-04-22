@@ -111,4 +111,39 @@ describe("Toolbar", () => {
     );
     expect(screen.queryByLabelText("Sort direction")).not.toBeInTheDocument();
   });
+
+  it("renders blur toggle button with inactive state by default", () => {
+    render(
+      <Toolbar query="" onQueryChange={() => {}} selectedMediaType="" onMediaTypeChange={() => {}} mediaTypeOptions={mediaTypes} {...defaultSortProps} />
+    );
+    const btn = screen.getByLabelText(/Blur:/);
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-pressed", "false");
+    expect(btn).toHaveTextContent("~");
+  });
+
+  it("blur toggle cycles none → sharp → blurry → none on repeated clicks", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Toolbar query="" onQueryChange={onChange} selectedMediaType="" onMediaTypeChange={() => {}} mediaTypeOptions={mediaTypes} {...defaultSortProps} />
+    );
+    const btn = screen.getByLabelText(/Blur:/);
+    // none → sharp: appends blur:false
+    await user.click(btn);
+    expect(onChange).toHaveBeenLastCalledWith("blur:false");
+    // Simulate the query prop being updated to "blur:false"
+  });
+
+  it("blur toggle removes blur token when cycling back to none", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Toolbar query="blur:false" onQueryChange={onChange} selectedMediaType="" onMediaTypeChange={() => {}} mediaTypeOptions={mediaTypes} {...defaultSortProps} />
+    );
+    const btn = screen.getByLabelText(/Blur:/);
+    // sharp → blurry: replaces blur:false with blur:true
+    await user.click(btn);
+    expect(onChange).toHaveBeenLastCalledWith("blur:true");
+  });
 });

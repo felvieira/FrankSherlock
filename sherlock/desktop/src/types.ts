@@ -358,6 +358,36 @@ export type TimelineBucket = {
   count: number;
 };
 
+// ── Auto-clustering ──────────────────────────────────────────────────
+
+export type EventSummary = {
+  id: number;
+  name: string;
+  startedAt: number;
+  endedAt: number;
+  fileCount: number;
+  coverFileId?: number | null;
+  centroidLat?: number | null;
+  centroidLon?: number | null;
+};
+
+export type TripSummary = {
+  id: number;
+  name: string;
+  startedAt: number;
+  endedAt: number;
+  eventCount: number;
+  coverFileId?: number | null;
+};
+
+export type Burst = {
+  coverFileId: number;
+  memberIds: number[];
+};
+
+/** Dedup policy strategy */
+export type DedupStrategy = "keepLargest" | "keepOldest" | "keepInAlbum";
+
 /** A parsed chip in the ChipSearchBar */
 export type SearchChip = {
   id: string;

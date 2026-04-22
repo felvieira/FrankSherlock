@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { DuplicatesResponse, DuplicateFile, DuplicateGroup } from "../../types";
+import { useState } from "react";
+import type { DuplicatesResponse, DuplicateFile, DuplicateGroup, DedupStrategy } from "../../types";
 import { fileName } from "../../utils/format";
 import { formatBytes } from "../../utils/format";
 import "./shared-tool-view.css";
@@ -20,6 +21,7 @@ type Props = {
   onBack: () => void;
   onSelectGroupDuplicates: (group: DuplicateGroup) => void;
   onPreviewGroup: (group: DuplicateGroup) => void;
+  onApplyDedupPolicy?: (strategy: DedupStrategy) => Promise<void>;
 };
 
 function formatDate(mtimeNs: number): string {
@@ -31,8 +33,21 @@ export default function DuplicatesView({
   data, loading, selected,
   nearEnabled, nearThreshold, onNearEnabledChange, onNearThresholdChange,
   onToggleFile, onSelectAllDuplicates, onDeselectAll, onDeleteSelected,
-  onBack, onSelectGroupDuplicates, onPreviewGroup,
+  onBack, onSelectGroupDuplicates, onPreviewGroup, onApplyDedupPolicy,
 }: Props) {
+  const [dedupStrategy, setDedupStrategy] = useState<DedupStrategy>("keepLargest");
+  const [applyingPolicy, setApplyingPolicy] = useState(false);
+
+  async function handleApplyPolicy() {
+    if (!onApplyDedupPolicy) return;
+    setApplyingPolicy(true);
+    try {
+      await onApplyDedupPolicy(dedupStrategy);
+    } finally {
+      setApplyingPolicy(false);
+    }
+  }
+
   return (
     <div className="tool-view">
       <div className="tool-toolbar">
@@ -59,6 +74,28 @@ export default function DuplicatesView({
               onChange={(e) => onNearThresholdChange(Number(e.target.value) / 100)}
             />
             <span className="near-threshold-label">{Math.round(nearThreshold * 100)}%</span>
+          </div>
+        )}
+        {onApplyDedupPolicy && (
+          <div className="dedup-policy-row">
+            <select
+              value={dedupStrategy}
+              onChange={(e) => setDedupStrategy(e.target.value as DedupStrategy)}
+              aria-label="Dedup strategy"
+              title="Auto-select which file to keep in each duplicate group"
+            >
+              <option value="keepLargest">Keep Largest</option>
+              <option value="keepOldest">Keep Oldest</option>
+              <option value="keepInAlbum">Keep In Album</option>
+            </select>
+            <button
+              type="button"
+              onClick={handleApplyPolicy}
+              disabled={applyingPolicy || data.totalDuplicateFiles === 0}
+              title="Auto-select duplicates to delete based on policy"
+            >
+              {applyingPolicy ? "Applying…" : "Apply Policy"}
+            </button>
           </div>
         )}
         {selected.size > 0 ? (

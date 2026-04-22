@@ -2,6 +2,28 @@ import { useEffect } from "react";
 import type { SortField, SortOrder } from "../../types";
 import ChipSearchBar from "../Search/ChipSearchBar";
 
+/** Extract current blur filter state from query string */
+function getBlurState(query: string): "none" | "sharp" | "blurry" {
+  if (/\bblur:false\b/i.test(query)) return "sharp";
+  if (/\bblur:true\b/i.test(query)) return "blurry";
+  return "none";
+}
+
+/** Cycle blur filter state: none → sharp → blurry → none */
+function cycleBlurState(current: "none" | "sharp" | "blurry"): "none" | "sharp" | "blurry" {
+  if (current === "none") return "sharp";
+  if (current === "sharp") return "blurry";
+  return "none";
+}
+
+/** Replace or remove the blur token in a query string */
+function setBlurInQuery(query: string, state: "none" | "sharp" | "blurry"): string {
+  const stripped = query.replace(/\s*blur:(true|false)/gi, "").trim();
+  if (state === "sharp") return (stripped + " blur:false").trim();
+  if (state === "blurry") return (stripped + " blur:true").trim();
+  return stripped;
+}
+
 type Props = {
   query: string;
   onQueryChange: (value: string) => void;
@@ -44,6 +66,18 @@ export default function Toolbar({
       onSortByChange("dateModified");
     }
   }, [hasTextQuery, sortBy, onSortByChange]);
+
+  const blurState = getBlurState(query);
+
+  function handleBlurToggle() {
+    const next = cycleBlurState(blurState);
+    onQueryChange(setBlurInQuery(query, next));
+  }
+
+  const blurLabel =
+    blurState === "none" ? "Blur: all" :
+    blurState === "sharp" ? "Blur: hide blurry" :
+    "Blur: only blurry";
 
   return (
     <div className="toolbar">
@@ -102,6 +136,15 @@ export default function Toolbar({
           {sortOrder === "asc" ? "\u2191" : "\u2193"}
         </button>
       )}
+      <button
+        className={`toolbar-blur-toggle${blurState !== "none" ? " toolbar-blur-active" : ""}`}
+        onClick={handleBlurToggle}
+        title={blurLabel}
+        aria-label={blurLabel}
+        aria-pressed={blurState !== "none"}
+      >
+        {blurState === "blurry" ? "~Blurry" : blurState === "sharp" ? "~Sharp" : "~"}
+      </button>
     </div>
   );
 }
