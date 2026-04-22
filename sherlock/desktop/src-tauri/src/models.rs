@@ -114,6 +114,9 @@ pub struct ParsedQuery {
     /// Some(true) = only blurry, Some(false) = exclude blurry, None = no filter
     #[serde(default)]
     pub blur: Option<bool>,
+    /// Dominant-color filter: packed 0x00RRGGBB. None = no filter.
+    #[serde(default)]
+    pub color_hex: Option<u32>,
 }
 
 impl ParsedQuery {
@@ -135,6 +138,7 @@ impl ParsedQuery {
             time_of_day: None,
             shot_kind: None,
             blur: None,
+            color_hex: None,
         }
     }
 }
@@ -299,6 +303,8 @@ pub struct FileRecordUpsert {
     pub aperture: Option<f64>,
     pub time_of_day: String,
     pub blur_score: Option<f64>,
+    pub dominant_color: Option<i64>,
+    pub qr_codes: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

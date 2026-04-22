@@ -11,6 +11,10 @@ pub struct ThumbnailResult {
     /// Blur/sharpness score (Laplacian variance). Higher = sharper.
     /// `Some` when the image was freshly decoded; `None` when cached.
     pub blur_score: Option<f64>,
+    /// Dominant color packed as 0x00RRGGBB. `Some` when freshly decoded.
+    pub dominant_color: Option<u32>,
+    /// Newline-separated decoded QR code payloads (empty = none found).
+    pub qr_codes: String,
 }
 
 /// Compute a 64-bit difference hash (dHash) from a decoded image.
@@ -76,6 +80,66 @@ pub fn compute_blur_score(img: &image::DynamicImage) -> f64 {
     }
 }
 
+/// Compute the dominant color of an image using fast histogram quantization.
+///
+/// Resizes to 32×32, quantizes each pixel to 4 bits per channel (16 levels),
+/// finds the most common quantized triplet, and returns the average RGB of that
+/// bucket packed as `0x00RRGGBB`.
+pub fn compute_dominant_color(img: &image::DynamicImage) -> u32 {
+    let small = img.resize_exact(32, 32, image::imageops::FilterType::Triangle);
+    let rgb = small.to_rgb8();
+
+    use std::collections::HashMap;
+    let mut counts: HashMap<(u8, u8, u8), (u32, u32, u32, u32)> = HashMap::new();
+
+    for pixel in rgb.pixels() {
+        let r = pixel.0[0];
+        let g = pixel.0[1];
+        let b = pixel.0[2];
+        let key = (r >> 4, g >> 4, b >> 4);
+        let entry = counts.entry(key).or_insert((0, 0, 0, 0));
+        entry.0 += 1;
+        entry.1 += r as u32;
+        entry.2 += g as u32;
+        entry.3 += b as u32;
+    }
+
+    if let Some((_, (cnt, sr, sg, sb))) = counts.iter().max_by_key(|(_, v)| v.0) {
+        let r = (sr / cnt) as u32;
+        let g = (sg / cnt) as u32;
+        let b = (sb / cnt) as u32;
+        (r << 16) | (g << 8) | b
+    } else {
+        0
+    }
+}
+
+/// Attempt to decode QR codes from an image.
+///
+/// Returns a newline-separated string of decoded payloads, or an empty string
+/// if no QR codes are found (or if decoding fails).
+pub fn decode_qr_codes(img: &image::DynamicImage) -> String {
+    let gray = img.to_luma8();
+    let (w, h) = gray.dimensions();
+    let mut prepared = rqrr::PreparedImage::prepare(gray);
+    let grids = prepared.detect_grids();
+
+    if grids.is_empty() || w < 10 || h < 10 {
+        return String::new();
+    }
+
+    let mut results: Vec<String> = Vec::new();
+    for grid in grids {
+        if let Ok((_, content)) = grid.decode() {
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() {
+                results.push(trimmed);
+            }
+        }
+    }
+    results.join("\n")
+}
+
 /// Generate a thumbnail for the given source image.
 ///
 /// Returns a `ThumbnailResult` with the path and optional dHash, or `None`
@@ -103,6 +167,8 @@ pub fn generate_thumbnail(
                     path: thumb_path.display().to_string(),
                     dhash: None,
                     blur_score: None,
+                    dominant_color: None,
+                    qr_codes: String::new(),
                 });
             }
         }
@@ -135,6 +201,8 @@ pub fn generate_thumbnail(
 
     let dhash = compute_dhash(&img);
     let blur_score = compute_blur_score(&img);
+    let dominant_color = compute_dominant_color(&img);
+    let qr_codes = decode_qr_codes(&img);
 
     let max_dim = 300u32;
     let (w, h) = (img.width(), img.height());
@@ -164,6 +232,8 @@ pub fn generate_thumbnail(
         path: thumb_path.display().to_string(),
         dhash: Some(dhash),
         blur_score: Some(blur_score),
+        dominant_color: Some(dominant_color),
+        qr_codes,
     })
 }
 
@@ -192,6 +262,8 @@ pub fn generate_pdf_thumbnail(
                     path: thumb_path.display().to_string(),
                     dhash: None,
                     blur_score: None,
+                    dominant_color: None,
+                    qr_codes: String::new(),
                 });
             }
         }
@@ -300,6 +372,8 @@ pub fn generate_pdf_thumbnail(
         path: thumb_path.display().to_string(),
         dhash: Some(dhash),
         blur_score: None,
+        dominant_color: None,
+        qr_codes: String::new(),
     })
 }
 
@@ -328,6 +402,8 @@ pub fn generate_video_thumbnail(
                     path: thumb_path.display().to_string(),
                     dhash: None,
                     blur_score: None,
+                    dominant_color: None,
+                    qr_codes: String::new(),
                 });
             }
         }
@@ -406,6 +482,8 @@ pub fn generate_video_thumbnail(
         path: thumb_path.display().to_string(),
         dhash: Some(dhash),
         blur_score: None,
+        dominant_color: None,
+        qr_codes: String::new(),
     })
 }
 

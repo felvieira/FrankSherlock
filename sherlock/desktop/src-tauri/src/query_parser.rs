@@ -128,6 +128,17 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         working_query
     };
 
+    // Extract color:name|#RRGGBB
+    let mut color_hex: Option<u32> = None;
+    let color_re = Regex::new(r#"(?i)\bcolor:(\S+)"#).expect("valid regex");
+    let working_query = if let Some(cap) = color_re.captures(&working_query) {
+        let color_str = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+        color_hex = parse_color(color_str);
+        color_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
     let mut media_types = Vec::new();
     let mut min_confidence = None;
     let mut date_from = None;
@@ -184,6 +195,9 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
     if blur.is_some() {
         score += 0.1;
     }
+    if color_hex.is_some() {
+        score += 0.15;
+    }
 
     // Strip matched media keywords from query text, longest patterns first
     let mut query_text = working_query.clone();
@@ -212,7 +226,44 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         time_of_day,
         shot_kind,
         blur,
+        color_hex,
     }
+}
+
+/// Parse a color name or #RRGGBB hex string to a packed u32 (0x00RRGGBB).
+fn parse_color(s: &str) -> Option<u32> {
+    // Try hex format first: #RGB or #RRGGBB
+    let hex_str = s.strip_prefix('#').unwrap_or("");
+    if hex_str.len() == 6 {
+        if let Ok(v) = u32::from_str_radix(hex_str, 16) {
+            return Some(v);
+        }
+    } else if hex_str.len() == 3 {
+        // Expand #RGB → #RRGGBB
+        let expanded: String = hex_str.chars().flat_map(|c| [c, c]).collect();
+        if let Ok(v) = u32::from_str_radix(&expanded, 16) {
+            return Some(v);
+        }
+    }
+
+    // Named colors
+    let rgb = match s.to_lowercase().as_str() {
+        "red"    => (204u32, 34u32, 34u32),
+        "green"  => (34, 170, 34),
+        "blue"   => (34, 34, 204),
+        "yellow" => (204, 204, 34),
+        "orange" => (204, 136, 34),
+        "purple" => (136, 34, 153),
+        "pink"   => (204, 102, 136),
+        "brown"  => (153, 102, 51),
+        "teal"   => (34, 136, 136),
+        "cyan"   => (34, 170, 204),
+        "white"  => (238, 238, 238),
+        "black"  => (17, 17, 17),
+        "gray" | "grey" => (136, 136, 136),
+        _ => return None,
+    };
+    Some((rgb.0 << 16) | (rgb.1 << 8) | rgb.2)
 }
 
 fn parse_min_confidence(raw: &str) -> Option<f32> {

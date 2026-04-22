@@ -960,7 +960,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             scan_marker, updated_at, deleted_at, location_text, dhash,
             duration_secs, video_width, video_height, video_codec, audio_codec,
             camera_model, lens_model, iso, shutter_speed, aperture, time_of_day,
-            blur_score
+            blur_score, dominant_color, qr_codes
         ) VALUES (
             ?1, ?2, ?3, ?4,
             ?5, ?6, ?7, ?8,
@@ -968,7 +968,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             ?14, ?15, NULL, ?16, ?17,
             ?18, ?19, ?20, ?21, ?22,
             ?23, ?24, ?25, ?26, ?27, ?28,
-            ?29
+            ?29, ?30, ?31
         )
         ON CONFLICT(root_id, rel_path) DO UPDATE SET
             filename = excluded.filename,
@@ -998,7 +998,9 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             shutter_speed = COALESCE(excluded.shutter_speed, files.shutter_speed),
             aperture = COALESCE(excluded.aperture, files.aperture),
             time_of_day = CASE WHEN excluded.time_of_day != '' THEN excluded.time_of_day ELSE files.time_of_day END,
-            blur_score = COALESCE(excluded.blur_score, files.blur_score)
+            blur_score = COALESCE(excluded.blur_score, files.blur_score),
+            dominant_color = COALESCE(excluded.dominant_color, files.dominant_color),
+            qr_codes = CASE WHEN excluded.qr_codes != '' THEN excluded.qr_codes ELSE files.qr_codes END
         "#,
         params![
             record.root_id,
@@ -1030,6 +1032,8 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             record.aperture,
             record.time_of_day,
             record.blur_score,
+            record.dominant_color,
+            record.qr_codes,
         ],
     )?;
 
@@ -1822,6 +1826,21 @@ fn search_images_normalized(
             where_clauses.push("(f.blur_score IS NULL OR f.blur_score >= 100.0)".to_string());
         }
     }
+    if let Some(hex) = parsed.color_hex {
+        let r = ((hex >> 16) & 255) as i64;
+        let g = ((hex >> 8) & 255) as i64;
+        let b = (hex & 255) as i64;
+        where_clauses.push(
+            "f.dominant_color IS NOT NULL AND \
+             ABS(((f.dominant_color >> 16) & 255) - ?) + \
+             ABS(((f.dominant_color >> 8) & 255) - ?) + \
+             ABS((f.dominant_color & 255) - ?) < 120"
+                .to_string(),
+        );
+        bind_values.push(Value::Integer(r));
+        bind_values.push(Value::Integer(g));
+        bind_values.push(Value::Integer(b));
+    }
 
     let media_types = normalize_media_types(&request.media_types);
     if !media_types.is_empty() {
@@ -1994,6 +2013,21 @@ fn search_like_fallback(
         } else {
             where_clauses.push("(f.blur_score IS NULL OR f.blur_score >= 100.0)".to_string());
         }
+    }
+    if let Some(hex) = parsed.color_hex {
+        let r = ((hex >> 16) & 255) as i64;
+        let g = ((hex >> 8) & 255) as i64;
+        let b = (hex & 255) as i64;
+        where_clauses.push(
+            "f.dominant_color IS NOT NULL AND \
+             ABS(((f.dominant_color >> 16) & 255) - ?) + \
+             ABS(((f.dominant_color >> 8) & 255) - ?) + \
+             ABS((f.dominant_color & 255) - ?) < 120"
+                .to_string(),
+        );
+        bind_values.push(Value::Integer(r));
+        bind_values.push(Value::Integer(g));
+        bind_values.push(Value::Integer(b));
     }
 
     let media_types = normalize_media_types(&request.media_types);
@@ -4108,6 +4142,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         }
     }
 
@@ -4156,6 +4192,8 @@ mod tests {
                 aperture: None,
                 time_of_day: String::new(),
                 blur_score: None,
+                dominant_color: None,
+                qr_codes: String::new(),
             };
             upsert_file_record(&db_path, &rec).expect("upsert");
         }
@@ -4212,6 +4250,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4261,6 +4301,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4313,6 +4355,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         touch_file_scan_marker(&db_path, root_id, "a.jpg", 2).expect("touch");
@@ -4364,6 +4408,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         let files = load_existing_files(&db_path, root_id).expect("load");
@@ -4406,6 +4452,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         mark_missing_as_deleted(&db_path, root_id, 99).expect("delete");
@@ -4825,6 +4873,8 @@ mod tests {
                 aperture: None,
                 time_of_day: String::new(),
                 blur_score: None,
+                dominant_color: None,
+                qr_codes: String::new(),
             };
             upsert_file_record(db_path, &rec).expect("upsert");
         }
@@ -5894,6 +5944,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -5927,6 +5979,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         upsert_file_record(&db_path, &rec2).expect("upsert");
 
@@ -7426,5 +7480,40 @@ mod tests {
             )
             .unwrap();
         assert_eq!(abs, "C:\\somewhere\\foo.jpg");
+    }
+
+    // -----------------------------------------------------------------------
+    // color_hex filter test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_search_color_hex_filter() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root_id = upsert_root(&db_path, "/tmp/demo").expect("root");
+
+        // Red-ish photo: dominant_color = 0x00CC2211 (R=204, G=34, B=17)
+        let mut rec_red = sample_record(root_id, "red.jpg", "fp-red");
+        rec_red.dominant_color = Some(0x00CC2211_i64);
+        upsert_file_record(&db_path, &rec_red).expect("upsert red");
+
+        // Blue-ish photo: dominant_color = 0x00112299 (R=17, G=34, B=153)
+        let mut rec_blue = sample_record(root_id, "blue.jpg", "fp-blue");
+        rec_blue.dominant_color = Some(0x00112299_i64);
+        upsert_file_record(&db_path, &rec_blue).expect("upsert blue");
+
+        // No color: no dominant_color
+        let rec_none = sample_record(root_id, "nocolor.jpg", "fp-nocolor");
+        upsert_file_record(&db_path, &rec_none).expect("upsert nocolor");
+
+        // Query color:red (#FF0000) — Manhattan distance to red.jpg = |204-255|+|34-0|+|17-0| = 51+34+17 = 102 < 120
+        // Manhattan distance to blue.jpg = |17-255|+|34-0|+|153-0| = 238+34+153 = 425 ≥ 120
+        let req = SearchRequest {
+            query: "color:#FF0000".to_string(),
+            ..SearchRequest::default()
+        };
+        let res = search_images(&db_path, &req).expect("search color");
+        assert_eq!(res.total, 1);
+        assert_eq!(res.items[0].rel_path, "red.jpg");
     }
 }

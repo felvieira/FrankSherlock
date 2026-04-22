@@ -542,6 +542,8 @@ struct ThumbnailOnlyResult {
     location_text: String,
     dhash: Option<u64>,
     blur_score: Option<f64>,
+    dominant_color: Option<i64>,
+    qr_codes: String,
     camera_model: String,
     lens_model: String,
     iso: Option<i64>,
@@ -599,9 +601,9 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         crate::exif::extract_scan_exif(abs)
     };
 
-    let (thumb_path, dhash, blur_score) = match thumb_result {
-        Some(tr) => (Some(tr.path), tr.dhash, tr.blur_score),
-        None => (None, None, None),
+    let (thumb_path, dhash, blur_score, dominant_color, qr_codes) = match thumb_result {
+        Some(tr) => (Some(tr.path), tr.dhash, tr.blur_score, tr.dominant_color.map(|c| c as i64), tr.qr_codes),
+        None => (None, None, None, None, String::new()),
     };
 
     ThumbnailOnlyResult {
@@ -609,6 +611,8 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         location_text: exif_location.location_text,
         dhash,
         blur_score,
+        dominant_color,
+        qr_codes,
         camera_model: exif_scan.camera_model,
         lens_model: exif_scan.lens_model,
         iso: exif_scan.iso,
@@ -673,6 +677,8 @@ fn probe_to_minimal_record(
         aperture: thumb_result.aperture,
         time_of_day: thumb_result.time_of_day.clone(),
         blur_score: thumb_result.blur_score,
+        dominant_color: thumb_result.dominant_color,
+        qr_codes: thumb_result.qr_codes.clone(),
     }
 }
 
@@ -1050,6 +1056,8 @@ mod tests {
             aperture: None,
             time_of_day: String::new(),
             blur_score: None,
+            dominant_color: None,
+            qr_codes: String::new(),
         };
         db::upsert_file_record(&db_path, &rec).expect("upsert");
 
