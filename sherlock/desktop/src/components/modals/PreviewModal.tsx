@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getVideoStreamUrl } from "../../api";
-import type { SearchItem } from "../../types";
+import type { SearchItem, SimilarResult } from "../../types";
 import { fileName } from "../../utils/format";
 import { formatBytes } from "../../utils/format";
 import PdfViewer from "../Content/PdfViewer";
@@ -15,7 +16,33 @@ type Props = {
   totalItems: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  onNavigateSimilar?: (result: SimilarResult) => void;
 };
+
+/** Fetches similar items with a 300ms debounce. */
+function useAmbientSimilar(fileId: number | null): SimilarResult[] {
+  const [similar, setSimilar] = useState<SimilarResult[]>([]);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (fileId === null) { setSimilar([]); return; }
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      invoke<SimilarResult[]>("find_similar_cmd", {
+        fileId,
+        limit: 5,
+        minScore: 0.7,
+      })
+        .then((res) => setSimilar(res.filter((r) => r.fileId !== fileId)))
+        .catch(() => setSimilar([]));
+    }, 300);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [fileId]);
+
+  return similar;
+}
 
 function isPdf(item: SearchItem): boolean {
   return /\.pdf$/i.test(item.relPath);
@@ -89,11 +116,17 @@ export default function PreviewModal({
   totalItems,
   onClose,
   onNavigate,
+  onNavigateSimilar,
 }: Props) {
   const { mode, pdfs, images } = detectLayout(previewItems);
   const videoItem = mode === "single-video" ? previewItems[0] : undefined;
   const videoUrl = useVideoStreamUrl(videoItem?.absPath);
   const [videoError, setVideoError] = useState(false);
+
+  // Ambient similar sidebar — only for single-item preview
+  const singleFileId =
+    previewItems.length === 1 && onNavigateSimilar ? previewItems[0].id : null;
+  const ambientSimilar = useAmbientSimilar(singleFileId);
 
   // Reset error when navigating to a different item
   useEffect(() => { setVideoError(false); }, [videoItem?.absPath]);
@@ -129,7 +162,10 @@ export default function PreviewModal({
 
   return (
     <ModalOverlay className="preview-overlay" onBackdropClick={onClose}>
-      <div className="preview-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`preview-modal${ambientSimilar.length > 0 ? " preview-modal-with-sidebar" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           className="preview-close"
           onClick={onClose}
@@ -259,6 +295,28 @@ export default function PreviewModal({
                   <span className="preview-collage-label">{idx + 1}</span>
                 )}
               </div>
+            ))}
+          </div>
+        )}
+
+        {/* Ambient similar sidebar */}
+        {ambientSimilar.length > 0 && onNavigateSimilar && (
+          <div className="preview-similar-sidebar" data-testid="ambient-similar-sidebar">
+            <div className="preview-similar-title">Similar</div>
+            {ambientSimilar.map((result) => (
+              <button
+                key={result.fileId}
+                type="button"
+                className="preview-similar-thumb"
+                title={result.relPath}
+                onClick={() => onNavigateSimilar(result)}
+              >
+                {result.thumbPath ? (
+                  <img src={convertFileSrc(result.thumbPath)} alt={result.filename} />
+                ) : (
+                  <div className="preview-similar-thumb-placeholder" />
+                )}
+              </button>
             ))}
           </div>
         )}

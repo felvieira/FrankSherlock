@@ -17,6 +17,7 @@ type ContentProps = {
   onSortOrderChange: (v: SortOrder) => void;
   hasTextQuery: boolean;
   onSaveSmartFolder?: () => void;
+  onSaveSearch?: () => void;
   items: SearchItem[];
   total: number;
   loading: boolean;
@@ -36,6 +37,7 @@ type ContentProps = {
 export default function Content({
   query, onQueryChange, selectedMediaType, onMediaTypeChange, mediaTypeOptions,
   sortBy, onSortByChange, sortOrder, onSortOrderChange, hasTextQuery, onSaveSmartFolder,
+  onSaveSearch,
   items, total, loading, loadingMore, canLoadMore, isScanning, selectedRootName,
   selectedIndices, focusIndex, gridRef, sentinelRef, onTileClick, onTileDoubleClick,
   onTileContextMenu,
@@ -54,6 +56,7 @@ export default function Content({
         onSortOrderChange={onSortOrderChange}
         hasTextQuery={hasTextQuery}
         onSaveSmartFolder={onSaveSmartFolder}
+        onSaveSearch={onSaveSearch}
       />
 
       <div className="content-body">

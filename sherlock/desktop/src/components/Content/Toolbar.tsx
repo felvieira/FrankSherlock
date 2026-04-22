@@ -36,6 +36,7 @@ type Props = {
   onSortOrderChange: (value: SortOrder) => void;
   hasTextQuery: boolean;
   onSaveSmartFolder?: () => void;
+  onSaveSearch?: () => void;
 };
 
 const sortOptions: { value: SortField; label: string; icon: JSX.Element; requiresQuery?: boolean }[] = [
@@ -60,6 +61,7 @@ const sortOptions: { value: SortField; label: string; icon: JSX.Element; require
 export default function Toolbar({
   query, onQueryChange, selectedMediaType, onMediaTypeChange, mediaTypeOptions,
   sortBy, onSortByChange, sortOrder, onSortOrderChange, hasTextQuery, onSaveSmartFolder,
+  onSaveSearch,
 }: Props) {
   useEffect(() => {
     if (!hasTextQuery && sortBy === "relevance") {
@@ -95,6 +97,18 @@ export default function Toolbar({
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
             <path d="M2 1h10l3 3v10a1 1 0 01-1 1H2a1 1 0 01-1-1V2a1 1 0 011-1zm2 0v4h7V1H4zm4 6a2.5 2.5 0 100 5 2.5 2.5 0 000-5z"/>
+          </svg>
+        </button>
+      )}
+      {hasTextQuery && onSaveSearch && (
+        <button
+          className="toolbar-save-btn"
+          onClick={onSaveSearch}
+          title="Save Search"
+          aria-label="Save Search"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zm0 2a.75.75 0 00-.75.75v2.5H5.75a.75.75 0 000 1.5h1.5v2.5a.75.75 0 001.5 0v-2.5h1.5a.75.75 0 000-1.5H8.75v-2.5A.75.75 0 008 4.5z"/>
           </svg>
         </button>
       )}

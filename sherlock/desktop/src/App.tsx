@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  cancelScan, copyFilesToClipboard, createFaceSmartAlbum, deleteFiles, ensureDatabase,
-  generateYearReview, getCliFolderPath, getFileMetadata, getFileProperties, listRoots,
-  removeRoot, renameFile, reorderRoots, startScan, updateFileMetadata,
+  cancelScan, copyFilesToClipboard, createFaceSmartAlbum, createSavedSearch, deleteFiles,
+  deleteSavedSearch, ensureDatabase, generateYearReview, getCliFolderPath, getFileMetadata,
+  getFileProperties, listRoots, listSavedSearches, removeRoot, renameFile, reorderRoots,
+  setSavedSearchNotify, startScan, updateFileMetadata,
 } from "./api";
 import type {
   DbStats,
@@ -11,8 +12,10 @@ import type {
   FileMetadata,
   RootInfo,
   RuntimeStatus,
+  SavedSearch,
   SearchItem,
   SetupStatus,
+  SimilarResult,
   SortField,
   SortOrder,
 } from "./types";
@@ -96,6 +99,7 @@ export default function App() {
   const [showExportCatalog, setShowExportCatalog] = useState(false);
   const [showImportCatalog, setShowImportCatalog] = useState(false);
   const [showTagRules, setShowTagRules] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
 
   /* ── Directory tree: derived from query ── */
   const selectedSubdir = useMemo(() => {
@@ -181,11 +185,19 @@ export default function App() {
     itemsLength: () => items.length,
   });
 
+  const refreshSavedSearches = useCallback(async () => {
+    try {
+      const searches = await listSavedSearches();
+      setSavedSearches(searches);
+    } catch { /* ignore */ }
+  }, []);
+
   /* ── Init app: also load albums + smart folders + CLI folder ── */
   const initApp = useCallback(async () => {
     const result = await scanManager.initApp();
     await albumManager.refreshAlbums();
     await smartFolderManager.refreshSmartFolders();
+    await refreshSavedSearches();
 
     if (!result) return;
     const cliPath = await getCliFolderPath();
@@ -220,7 +232,7 @@ export default function App() {
         if (newRoot) setSelectedRootId(newRoot.id);
       } catch { /* ignore */ }
     }
-  }, [scanManager.initApp]);
+  }, [scanManager.initApp, refreshSavedSearches]);
 
   useAppInit(initApp);
   usePolling(POLL_MS, scanManager.pollRuntimeAndScans, [scanManager.trackedJobIds]);
@@ -549,6 +561,18 @@ export default function App() {
     smartFolderManager.onCreateSmartFolderConfirm(name, query);
   }
 
+  async function handleSaveSearch() {
+    const name = window.prompt("Save search as:", query.trim().slice(0, 40) || "My Search");
+    if (!name || !name.trim()) return;
+    try {
+      await createSavedSearch(name.trim(), query.trim());
+      await refreshSavedSearches();
+      setNotice(`Saved search "${name.trim()}"`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   /* ── Duplicates handler wrappers ── */
   function handleDuplicatesDeleteSelected() {
     const filesToDelete = duplicates.getDeleteSearchItems();
@@ -596,6 +620,28 @@ export default function App() {
           totalItems={items.length}
           onClose={() => setPreviewOpen(false)}
           onNavigate={(idx) => { selectOnly(idx); }}
+          onNavigateSimilar={(result: SimilarResult) => {
+            // If the similar file is already in the results list, navigate there
+            const idx = items.findIndex((it) => it.id === result.fileId);
+            if (idx >= 0) {
+              selectOnly(idx);
+            } else {
+              // Synthesize a minimal SearchItem for standalone preview
+              const synth: SearchItem = {
+                id: result.fileId,
+                rootId: result.rootId,
+                relPath: result.relPath,
+                absPath: result.absPath,
+                mediaType: result.mediaType,
+                description: result.description,
+                confidence: result.score,
+                mtimeNs: 0,
+                sizeBytes: 0,
+                thumbnailPath: result.thumbPath,
+              };
+              setFacePreviewItems([synth]);
+            }
+          }}
         />
       )}
       {duplicates.dupPreviewItems.length > 0 && (
@@ -820,6 +866,30 @@ export default function App() {
             });
             smartFolderManager.setActiveSmartFolderId(null);
           }}
+          savedSearches={savedSearches}
+          onSelectSavedSearch={(s) => {
+            setQuery(s.query);
+            smartFolderManager.setActiveSmartFolderId(null);
+            duplicates.setDuplicatesMode(false);
+            setPdfPasswordsMode(false);
+            faces.setFacesMode(false);
+          }}
+          onDeleteSavedSearch={async (s) => {
+            try {
+              await deleteSavedSearch(s.id);
+              await refreshSavedSearches();
+            } catch (err) {
+              setError(errorMessage(err));
+            }
+          }}
+          onToggleSavedSearchNotify={async (s) => {
+            try {
+              await setSavedSearchNotify(s.id, !s.notify);
+              await refreshSavedSearches();
+            } catch (err) {
+              setError(errorMessage(err));
+            }
+          }}
         />
 
         {faces.facesMode ? (
@@ -907,6 +977,7 @@ export default function App() {
             onSortOrderChange={setSortOrder}
             hasTextQuery={query.trim().length > 0}
             onSaveSmartFolder={smartFolderManager.openCreateModal}
+            onSaveSearch={handleSaveSearch}
             items={items}
             total={total}
             loading={loading}

@@ -33,7 +33,7 @@ use models::{
     Album, DeleteFilesResult, DuplicatesResponse, HealthCheckOutcome, HealthStatus, PdfPassword,
     ProtectedPdfInfo, PurgeResult, RenameFileResult, RetryProtectedPdfsResult, RootInfo,
     RuntimeStatus, ScanJobStatus, SearchRequest, SearchResponse, SetupDownloadStatus, SetupStatus,
-    SmartFolder, SubdirEntry, TagRule, VenvProvisionStatus,
+    SavedSearch, SmartFolder, SubdirEntry, TagRule, VenvProvisionStatus,
 };
 use tauri::Manager;
 use tauri::State;
@@ -689,6 +689,40 @@ fn delete_smart_folder(folder_id: i64, state: State<'_, AppState>) -> Result<(),
 #[tauri::command]
 fn list_smart_folders(state: State<'_, AppState>) -> Result<Vec<SmartFolder>, String> {
     db::list_smart_folders(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+// ── Saved search commands ────────────────────────────────────────────
+
+#[tauri::command]
+fn list_saved_searches(state: State<'_, AppState>) -> Result<Vec<SavedSearch>, String> {
+    db::list_saved_searches(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_saved_search(
+    name: String,
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<SavedSearch, String> {
+    require_writable(state.inner())?;
+    db::create_saved_search(&state.paths.db_file, &name, &query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_saved_search(search_id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::delete_saved_search(&state.paths.db_file, search_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_saved_search_notify(
+    search_id: i64,
+    notify: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::set_saved_search_notify(&state.paths.db_file, search_id, notify)
+        .map_err(|e| e.to_string())
 }
 
 // ── Reorder commands ────────────────────────────────────────────────
@@ -1845,6 +1879,10 @@ pub fn run() {
             create_tag_rule,
             delete_tag_rule,
             set_tag_rule_enabled,
+            list_saved_searches,
+            create_saved_search,
+            delete_saved_search,
+            set_saved_search_notify,
             reorder_roots,
             reorder_albums,
             reorder_smart_folders,

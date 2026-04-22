@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
     FileProperties, FileRecordUpsert, HealthCheckOutcome, ParsedQuery, PdfPassword,
-    ProtectedPdfInfo, PurgeResult, RootInfo, ScanJobState, ScanJobStatus, SearchItem,
+    ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, ScanJobState, ScanJobStatus, SearchItem,
     SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder, SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
@@ -2592,6 +2592,70 @@ pub fn get_enabled_tag_rules(db_path: &Path) -> AppResult<Vec<TagRule>> {
         rules.push(row?);
     }
     Ok(rules)
+}
+
+// ── Saved Searches ───────────────────────────────────────────────────
+
+pub fn list_saved_searches(db_path: &Path) -> AppResult<Vec<SavedSearch>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, query, notify, last_match_id, last_checked_at
+         FROM saved_searches ORDER BY id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(SavedSearch {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            query: row.get(2)?,
+            notify: row.get::<_, i64>(3)? != 0,
+            last_match_id: row.get(4)?,
+            last_checked_at: row.get(5)?,
+        })
+    })?;
+    let mut searches = Vec::new();
+    for row in rows {
+        searches.push(row?);
+    }
+    Ok(searches)
+}
+
+pub fn create_saved_search(db_path: &Path, name: &str, query: &str) -> AppResult<SavedSearch> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "INSERT INTO saved_searches (name, query) VALUES (?1, ?2)",
+        params![name, query],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(SavedSearch {
+        id,
+        name: name.to_string(),
+        query: query.to_string(),
+        notify: false,
+        last_match_id: 0,
+        last_checked_at: 0,
+    })
+}
+
+pub fn delete_saved_search(db_path: &Path, search_id: i64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "DELETE FROM saved_searches WHERE id = ?1",
+        params![search_id],
+    )?;
+    Ok(())
+}
+
+pub fn set_saved_search_notify(
+    db_path: &Path,
+    search_id: i64,
+    notify: bool,
+) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "UPDATE saved_searches SET notify = ?1 WHERE id = ?2",
+        params![notify as i64, search_id],
+    )?;
+    Ok(())
 }
 
 // ── PDF Passwords ───────────────────────────────────────────────────
@@ -7635,6 +7699,38 @@ mod tests {
     // -----------------------------------------------------------------------
     // Tag rules tests
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Saved searches tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_saved_searches_crud() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        // Empty by default
+        assert!(list_saved_searches(&db_path).expect("list").is_empty());
+
+        // Create
+        let s = create_saved_search(&db_path, "Vacation", "vacation beach").expect("create");
+        assert_eq!(s.name, "Vacation");
+        assert_eq!(s.query, "vacation beach");
+        assert!(!s.notify);
+
+        // List
+        let all = list_saved_searches(&db_path).expect("list one");
+        assert_eq!(all.len(), 1);
+
+        // Toggle notify
+        set_saved_search_notify(&db_path, s.id, true).expect("notify on");
+        let updated = list_saved_searches(&db_path).expect("list updated");
+        assert!(updated[0].notify);
+
+        // Delete
+        delete_saved_search(&db_path, s.id).expect("delete");
+        assert!(list_saved_searches(&db_path).expect("after delete").is_empty());
+    }
 
     #[test]
     fn test_tag_rules_crud() {

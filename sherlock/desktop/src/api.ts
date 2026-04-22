@@ -31,6 +31,7 @@ import type {
   Suggestion,
   SearchRequest,
   SearchResponse,
+  SavedSearch,
   TagRule,
   TimelineBucket,
   TripSummary,
@@ -194,6 +195,24 @@ export async function deleteTagRule(ruleId: number): Promise<void> {
 
 export async function setTagRuleEnabled(ruleId: number, enabled: boolean): Promise<void> {
   return invoke<void>("set_tag_rule_enabled", { ruleId, enabled });
+}
+
+// ── Saved Searches ──────────────────────────────────────────────────
+
+export async function listSavedSearches(): Promise<SavedSearch[]> {
+  return invoke<SavedSearch[]>("list_saved_searches");
+}
+
+export async function createSavedSearch(name: string, query: string): Promise<SavedSearch> {
+  return invoke<SavedSearch>("create_saved_search", { name, query });
+}
+
+export async function deleteSavedSearch(searchId: number): Promise<void> {
+  return invoke<void>("delete_saved_search", { searchId });
+}
+
+export async function setSavedSearchNotify(searchId: number, notify: boolean): Promise<void> {
+  return invoke<void>("set_saved_search_notify", { searchId, notify });
 }
 
 // ── Duplicates ──────────────────────────────────────────────────────

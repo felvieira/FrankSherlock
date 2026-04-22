@@ -265,3 +265,58 @@
   color: var(--text-secondary);
   font-size: 0.75rem;
 }
+
+/* ── Ambient similar sidebar ─────────────────────────────────── */
+.preview-modal-with-sidebar {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.preview-similar-sidebar {
+  width: 90px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px;
+  border-left: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+  overflow-y: auto;
+}
+
+.preview-similar-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #888);
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--border-subtle, #333);
+}
+
+.preview-similar-thumb {
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.preview-similar-thumb:hover {
+  border-color: var(--accent, #4d8fff);
+}
+
+.preview-similar-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-similar-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-secondary);
+}

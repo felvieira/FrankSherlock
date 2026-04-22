@@ -1,4 +1,4 @@
-import type { Album, DbStats, FaceDetectProgress, RootInfo, ScanJobStatus, SmartFolder, UpdateInfo } from "../../types";
+import type { Album, DbStats, FaceDetectProgress, RootInfo, ScanJobStatus, SavedSearch, SmartFolder, UpdateInfo } from "../../types";
 import { formatBytes } from "../../utils/format";
 import { useDragReorder } from "../../hooks/useDragReorder";
 import RootCard from "./RootCard";
@@ -54,6 +54,10 @@ type SidebarProps = {
   onCheckUpdates?: () => void;
   onInstallUpdate?: () => void;
   onTimelineQueryChange?: (query: string) => void;
+  savedSearches?: SavedSearch[];
+  onSelectSavedSearch?: (search: SavedSearch) => void;
+  onDeleteSavedSearch?: (search: SavedSearch) => void;
+  onToggleSavedSearchNotify?: (search: SavedSearch) => void;
 };
 
 export default function Sidebar({
@@ -70,6 +74,7 @@ export default function Sidebar({
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
   onTimelineQueryChange,
+  savedSearches, onSelectSavedSearch, onDeleteSavedSearch, onToggleSavedSearchNotify,
 }: SidebarProps) {
   const rootsDrag = useDragReorder({ items: roots, onReorder: onReorderRoots ?? (() => {}), readOnly });
   const albumsDrag = useDragReorder({ items: albums, onReorder: onReorderAlbums ?? (() => {}), readOnly });
@@ -172,6 +177,44 @@ export default function Sidebar({
                   </div>
                 );
               })}
+            </div>
+          </>
+        )}
+
+        {savedSearches && savedSearches.length > 0 && (
+          <>
+            <div className="sidebar-section"><span>Saved Searches</span></div>
+            <div className="root-list">
+              {savedSearches.map((s) => (
+                <div key={s.id} className="saved-search-row">
+                  <button
+                    type="button"
+                    className="saved-search-name"
+                    onClick={() => onSelectSavedSearch?.(s)}
+                    title={s.query}
+                  >
+                    {s.name}
+                  </button>
+                  <button
+                    type="button"
+                    className={`saved-search-bell${s.notify ? " active" : ""}`}
+                    title={s.notify ? "Disable alerts" : "Enable alerts"}
+                    onClick={() => onToggleSavedSearchNotify?.(s)}
+                    aria-label={s.notify ? "Disable alert" : "Enable alert"}
+                  >
+                    🔔
+                  </button>
+                  <button
+                    type="button"
+                    className="saved-search-delete"
+                    title="Delete saved search"
+                    onClick={() => onDeleteSavedSearch?.(s)}
+                    aria-label="Delete saved search"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
           </>
         )}
