@@ -9,6 +9,7 @@ import type {
   FaceInfo,
   FileMetadata,
   FileProperties,
+  FilterOption,
   HealthStatus,
   PdfPassword,
   PersonInfo,
@@ -24,8 +25,10 @@ import type {
   SetupStatus,
   SmartFolder,
   SubdirEntry,
+  Suggestion,
   SearchRequest,
   SearchResponse,
+  TimelineBucket,
   VenvProvisionStatus,
 } from "./types";
 
@@ -270,4 +273,22 @@ export async function reassignFacesToPerson(faceIds: number[], targetPersonId: n
 
 export async function setRepresentativeFace(personId: number, faceId: number): Promise<void> {
   return invoke<void>("set_representative_face", { personId, faceId });
+}
+
+// ── Phase 1/2: EXIF filters, autocomplete, timeline ─────────────────
+
+export async function listCameras(): Promise<FilterOption[]> {
+  return invoke<FilterOption[]>("list_cameras_cmd");
+}
+
+export async function listLenses(): Promise<FilterOption[]> {
+  return invoke<FilterOption[]>("list_lenses_cmd");
+}
+
+export async function suggestTags(prefix: string, limit = 8): Promise<Suggestion[]> {
+  return invoke<Suggestion[]>("suggest_cmd", { prefix, limit });
+}
+
+export async function listTimelineBuckets(): Promise<TimelineBucket[]> {
+  return invoke<TimelineBucket[]>("list_timeline_buckets_cmd");
 }

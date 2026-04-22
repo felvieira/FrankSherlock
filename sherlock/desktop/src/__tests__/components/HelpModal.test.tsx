@@ -16,6 +16,13 @@ describe("HelpModal", () => {
     expect(screen.getByText("album:vacation")).toBeInTheDocument();
   });
 
+  it("shows camera, lens, and time filter examples", () => {
+    render(<HelpModal onClose={() => {}} />);
+    expect(screen.getByText("camera:Sony")).toBeInTheDocument();
+    expect(screen.getByText("lens:50mm")).toBeInTheDocument();
+    expect(screen.getByText("time:morning")).toBeInTheDocument();
+  });
+
   it("calls onClose when Close button clicked", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

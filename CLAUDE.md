@@ -39,7 +39,7 @@ From `sherlock/desktop/`:
 ```bash
 npm install                    # frontend deps
 cargo build                    # rust backend (from src-tauri/)
-cargo test                     # 363 unit tests
+cargo test                     # 366 unit tests
 npm run tauri:dev              # launch dev mode
 npm run test                   # 299 frontend tests
 npm run tauri:build            # produce AppImage/DMG/MSI
@@ -69,6 +69,7 @@ WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=wayland,x11 npm run tauri:dev
 | `find_similar.rs` | "More like this" ranked query over the catalog, scoped to matching `media_type`, with early-exit pruning via Hamming upper bound |
 | `filters.rs` | Aggregation queries for filter UI — `list_cameras`, `list_lenses` returning ranked `FilterOption` lists |
 | `autocomplete.rs` | Ranked prefix-match suggestions from people, cameras, lenses, and canonical mentions — used by search bar typeahead |
+| `timeline.rs` | Monthly photo-count aggregation (`list_timeline_buckets`) for the Timeline heatmap sidebar |
 
 ## Architecture Principles
 

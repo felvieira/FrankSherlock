@@ -1,0 +1,52 @@
+/* ── TagAutocomplete dropdown ─────────────────────────────────── */
+.tag-autocomplete {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.tag-autocomplete__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.tag-autocomplete__item--active {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.tag-autocomplete__icon {
+  flex: 0 0 16px;
+  font-size: 0.8rem;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.tag-autocomplete__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-autocomplete__count {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}

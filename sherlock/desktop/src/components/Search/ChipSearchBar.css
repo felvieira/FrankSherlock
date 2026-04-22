@@ -1,0 +1,179 @@
+/* ── ChipSearchBar ────────────────────────────────────────────── */
+.chip-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  position: relative;
+  cursor: text;
+}
+
+.chip-search-bar:focus-within {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ── Chips ── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  white-space: nowrap;
+  max-width: 200px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+}
+
+/* Per-facet accent dots */
+.chip--camera  { border-left: 3px solid #5b8cff; }
+.chip--lens    { border-left: 3px solid #9b7fff; }
+.chip--time    { border-left: 3px solid #ff9d5c; }
+.chip--person  { border-left: 3px solid #6ab04c; }
+.chip--album   { border-left: 3px solid #f9ca24; }
+.chip--subdir  { border-left: 3px solid #74b9ff; }
+.chip--media   { border-left: 3px solid #fd79a8; }
+
+.chip--pending {
+  background: var(--bg-hover);
+  border-style: dashed;
+}
+
+.chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip__facet {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.chip__value {
+  color: var(--text-primary);
+}
+
+.chip__delete {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.chip__delete:hover {
+  color: var(--text-primary);
+}
+
+/* ── Pending input inside chip ── */
+.chip__pending-wrapper {
+  position: relative;
+}
+
+.chip__pending-input {
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: var(--text-primary);
+  width: 100px;
+  min-width: 60px;
+}
+
+.chip__autocomplete-anchor {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 200px;
+  z-index: 200;
+}
+
+/* ── Free-text input ── */
+.chip-search-bar__input-wrapper {
+  flex: 1;
+  min-width: 80px;
+  position: relative;
+}
+
+.chip-search-bar__input {
+  width: 100%;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  padding: 1px 0;
+}
+
+.chip-search-bar__autocomplete-anchor {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+}
+
+/* ── Facet button ── */
+.chip-search-bar__facet-btn {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 1px 5px;
+}
+
+.chip-search-bar__facet-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Facet dropdown menu ── */
+.chip-search-bar__facet-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 300;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  min-width: 120px;
+}
+
+.chip-search-bar__facet-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 5px 14px;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.chip-search-bar__facet-option:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { SortField, SortOrder } from "../../types";
+import ChipSearchBar from "../Search/ChipSearchBar";
 
 type Props = {
   query: string;
@@ -46,12 +47,10 @@ export default function Toolbar({
 
   return (
     <div className="toolbar">
-      <input
-        type="search"
+      <ChipSearchBar
+        query={query}
+        onQueryChange={onQueryChange}
         placeholder="e.g. photo beach sunset — F1 for help"
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
-        aria-label="Search query"
       />
       {hasTextQuery && onSaveSmartFolder && (
         <button

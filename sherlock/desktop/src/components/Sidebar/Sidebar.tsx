@@ -5,6 +5,7 @@ import RootCard from "./RootCard";
 import AlbumCard from "./AlbumCard";
 import SmartFolderCard from "./SmartFolderCard";
 import DirectoryTree from "./DirectoryTree";
+import TimelineHeatmap from "../Content/TimelineHeatmap";
 import "./Sidebar.css";
 
 type SidebarProps = {
@@ -50,6 +51,7 @@ type SidebarProps = {
   updateProgress?: { downloaded: number; total: number | null } | null;
   onCheckUpdates?: () => void;
   onInstallUpdate?: () => void;
+  onTimelineQueryChange?: (query: string) => void;
 };
 
 export default function Sidebar({
@@ -65,6 +67,7 @@ export default function Sidebar({
   onExportCatalog, onImportCatalog,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
+  onTimelineQueryChange,
 }: SidebarProps) {
   const rootsDrag = useDragReorder({ items: roots, onReorder: onReorderRoots ?? (() => {}), readOnly });
   const albumsDrag = useDragReorder({ items: albums, onReorder: onReorderAlbums ?? (() => {}), readOnly });
@@ -168,6 +171,13 @@ export default function Sidebar({
                 );
               })}
             </div>
+          </>
+        )}
+
+        {onTimelineQueryChange && (
+          <>
+            <div className="sidebar-section"><span>Timeline</span></div>
+            <TimelineHeatmap onQueryChange={onTimelineQueryChange} />
           </>
         )}
       </div>

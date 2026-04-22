@@ -336,3 +336,32 @@ export interface SimilarResult {
   thumbPath: string | null;
   score: number;
 }
+
+/** Autocomplete suggestion from suggest_cmd */
+export type Suggestion = {
+  label: string;
+  /** "person" | "camera" | "lens" | "mention" */
+  kind: string;
+  count: number;
+};
+
+/** Camera/lens filter option from list_cameras_cmd / list_lenses_cmd */
+export type FilterOption = {
+  value: string;
+  count: number;
+};
+
+/** One monthly bucket from list_timeline_buckets_cmd */
+export type TimelineBucket = {
+  /** ISO-8601 month, e.g. "2023-06" */
+  bucket: string;
+  count: number;
+};
+
+/** A parsed chip in the ChipSearchBar */
+export type SearchChip = {
+  id: string;
+  /** "camera" | "lens" | "time" | "person" | "album" | "subdir" | "media" | "date_from" | "date_range" */
+  facet: string;
+  value: string;
+};

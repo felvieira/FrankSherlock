@@ -17,6 +17,7 @@ mod runtime;
 mod scan;
 mod similarity;
 mod thumbnail;
+mod timeline;
 mod video;
 mod video_server;
 
@@ -1809,7 +1810,8 @@ pub fn run() {
             find_similar::find_similar_cmd,
             filters::list_cameras_cmd,
             filters::list_lenses_cmd,
-            autocomplete::suggest_cmd
+            autocomplete::suggest_cmd,
+            timeline::list_timeline_buckets_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

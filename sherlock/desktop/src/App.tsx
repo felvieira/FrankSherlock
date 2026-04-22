@@ -794,6 +794,14 @@ export default function App() {
           updateProgress={autoUpdate.updateProgress}
           onCheckUpdates={() => autoUpdate.checkForUpdates(false)}
           onInstallUpdate={autoUpdate.installUpdate}
+          onTimelineQueryChange={(dateRange) => {
+            setQuery((q) => {
+              // Replace any existing date range and append the new one
+              const stripped = q.replace(/\d{4}-\d{2}-\d{2}\s+\d{4}-\d{2}-\d{2}/g, "").trim();
+              return dateRange ? `${dateRange}${stripped ? " " + stripped : ""}` : stripped;
+            });
+            smartFolderManager.setActiveSmartFolderId(null);
+          }}
         />
 
         {faces.facesMode ? (
