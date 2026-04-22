@@ -8,10 +8,10 @@ use rusqlite_migration::{HookError, Migrations, M};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
-    FileProperties, FileRecordUpsert, HealthCheckOutcome, ParsedQuery, PdfPassword,
-    ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, SavedSearchAlert, ScanJobState,
-    ScanJobStatus, SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder,
-    SubdirEntry, TagRule,
+    FileProperties, FileRecordUpsert, GpsFile, HealthCheckOutcome, NearbyResult, ParsedQuery,
+    PdfPassword, ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, SavedSearchAlert,
+    ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField,
+    SortOrder, SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
 
@@ -2732,6 +2732,92 @@ pub fn check_saved_search_alerts(db_path: &Path) -> AppResult<Vec<SavedSearchAle
         }
     }
     Ok(alerts)
+}
+
+/// Returns all non-deleted files that have GPS coordinates.
+/// `root_id` filters to a specific root when Some.
+pub fn list_gps_files(db_path: &Path, root_id: Option<i64>) -> AppResult<Vec<GpsFile>> {
+    let conn = open_conn(db_path)?;
+    let (sql, has_root) = match root_id {
+        Some(_) => (
+            "SELECT id, gps_lat, gps_lon, thumb_path, filename, media_type
+             FROM files WHERE deleted_at IS NULL
+             AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL
+             AND root_id = ?1",
+            true,
+        ),
+        None => (
+            "SELECT id, gps_lat, gps_lon, thumb_path, filename, media_type
+             FROM files WHERE deleted_at IS NULL
+             AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL",
+            false,
+        ),
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let row_to_gps = |r: &rusqlite::Row<'_>| {
+        Ok(GpsFile {
+            id: r.get(0)?,
+            lat: r.get(1)?,
+            lon: r.get(2)?,
+            thumb_path: r.get(3)?,
+            filename: r.get(4)?,
+            media_type: r.get(5)?,
+        })
+    };
+    let rows = if has_root {
+        stmt.query_map(params![root_id.unwrap()], row_to_gps)?
+            .filter_map(Result::ok)
+            .collect()
+    } else {
+        stmt.query_map([], row_to_gps)?
+            .filter_map(Result::ok)
+            .collect()
+    };
+    Ok(rows)
+}
+
+/// Returns up to `limit` files sorted by approximate distance (degrees, not km)
+/// from the given (lat, lon). Uses a bounding box pre-filter for efficiency.
+pub fn find_nearby(db_path: &Path, lat: f64, lon: f64, limit: i64) -> AppResult<Vec<NearbyResult>> {
+    let conn = open_conn(db_path)?;
+    // ~1 degree ≈ 111 km. Pre-filter to ±10 degrees (≈1100 km) then sort by Euclidean dist.
+    let delta = 10.0f64;
+    let mut stmt = conn.prepare(
+        "SELECT id, filename, rel_path, abs_path, media_type,
+                COALESCE(description, '') as description,
+                COALESCE(confidence, 0.0) as confidence,
+                gps_lat, gps_lon, thumb_path,
+                ((gps_lat - ?1) * (gps_lat - ?1) + (gps_lon - ?2) * (gps_lon - ?2)) AS dist_sq
+         FROM files
+         WHERE deleted_at IS NULL
+           AND gps_lat BETWEEN ?3 AND ?4
+           AND gps_lon BETWEEN ?5 AND ?6
+         ORDER BY dist_sq ASC
+         LIMIT ?7",
+    )?;
+    let rows: Vec<NearbyResult> = stmt
+        .query_map(
+            params![lat, lon, lat - delta, lat + delta, lon - delta, lon + delta, limit],
+            |r| {
+                let dist_sq: f64 = r.get(10)?;
+                Ok(NearbyResult {
+                    id: r.get(0)?,
+                    filename: r.get(1)?,
+                    rel_path: r.get(2)?,
+                    abs_path: r.get(3)?,
+                    media_type: r.get(4)?,
+                    description: r.get(5)?,
+                    confidence: r.get(6)?,
+                    lat: r.get(7)?,
+                    lon: r.get(8)?,
+                    thumb_path: r.get(9)?,
+                    dist_deg: dist_sq.sqrt(),
+                })
+            },
+        )?
+        .filter_map(Result::ok)
+        .collect();
+    Ok(rows)
 }
 
 // ── PDF Passwords ───────────────────────────────────────────────────
@@ -7913,6 +7999,61 @@ mod tests {
         let folders = list_smart_folders(&db_path).expect("list");
         assert_eq!(folders.len(), 1);
         assert_eq!(folders[0].id, sf.id);
+    }
+
+    // -----------------------------------------------------------------------
+    // list_gps_files / find_nearby tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn list_gps_files_returns_only_gps_tagged_files() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        // File with GPS
+        let mut rec_gps = sample_record(root, "gps.jpg", "fpg");
+        rec_gps.gps_lat = Some(48.8566);
+        rec_gps.gps_lon = Some(2.3522);
+        upsert_file_record(&db_path, &rec_gps).expect("upsert gps");
+
+        // File without GPS
+        let rec_no = sample_record(root, "no_gps.jpg", "fpn");
+        upsert_file_record(&db_path, &rec_no).expect("upsert no-gps");
+
+        let result = list_gps_files(&db_path, None).expect("list");
+        assert_eq!(result.len(), 1);
+        assert!((result[0].lat - 48.8566).abs() < 0.001);
+        assert!((result[0].lon - 2.3522).abs() < 0.001);
+    }
+
+    #[test]
+    fn find_nearby_returns_closest_files() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        // 3 files: Paris, London, Tokyo
+        let places = [
+            ("paris.jpg", 48.8566f64, 2.3522f64, "fpp"),
+            ("london.jpg", 51.5074, -0.1278, "fpl"),
+            ("tokyo.jpg", 35.6762, 139.6503, "fpt"),
+        ];
+        for (name, lat, lon, fp) in places {
+            let mut rec = sample_record(root, name, fp);
+            rec.gps_lat = Some(lat);
+            rec.gps_lon = Some(lon);
+            upsert_file_record(&db_path, &rec).expect("upsert");
+        }
+
+        // Query near Paris (48.85, 2.35) — should return Paris first, then London, not Tokyo
+        let results = find_nearby(&db_path, 48.85, 2.35, 50).expect("find");
+        assert!(!results.is_empty(), "should have results");
+        assert_eq!(results[0].filename, "paris.jpg");
+        // Tokyo should not appear in top 2
+        if results.len() >= 2 {
+            assert_ne!(results[1].filename, "tokyo.jpg");
+        }
     }
 
     // -----------------------------------------------------------------------
