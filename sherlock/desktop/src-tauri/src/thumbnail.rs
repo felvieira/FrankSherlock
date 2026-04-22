@@ -8,6 +8,9 @@ pub struct ThumbnailResult {
     /// dHash computed from the image. `Some` when the thumbnail was freshly
     /// generated, `None` when the cached thumbnail was reused (image not decoded).
     pub dhash: Option<u64>,
+    /// Blur/sharpness score (Laplacian variance). Higher = sharper.
+    /// `Some` when the image was freshly decoded; `None` when cached.
+    pub blur_score: Option<f64>,
 }
 
 /// Compute a 64-bit difference hash (dHash) from a decoded image.
@@ -28,6 +31,49 @@ pub fn compute_dhash(img: &image::DynamicImage) -> u64 {
         }
     }
     hash
+}
+
+/// Compute a blur/sharpness score using the Laplacian variance method.
+///
+/// Downsizes the image to at most 512×512, converts to grayscale, then computes
+/// the mean squared Laplacian (4·p − left − right − up − down)² over all interior
+/// pixels.  Sharper images produce higher scores; very blurry images score near 0.
+pub fn compute_blur_score(img: &image::DynamicImage) -> f64 {
+    let (w, h) = (img.width(), img.height());
+    let max_dim = 512u32;
+    let small = if w > max_dim || h > max_dim {
+        let scale = max_dim as f64 / w.max(h) as f64;
+        let new_w = ((w as f64 * scale).round() as u32).max(1);
+        let new_h = ((h as f64 * scale).round() as u32).max(1);
+        img.resize_exact(new_w, new_h, image::imageops::FilterType::Triangle)
+    } else {
+        img.clone()
+    };
+
+    let gray = small.to_luma8();
+    let (gw, gh) = gray.dimensions();
+    if gw < 3 || gh < 3 {
+        return 0.0;
+    }
+
+    let mut sum_sq = 0.0f64;
+    let count = (gw - 2) as usize * (gh - 2) as usize;
+    for y in 1..(gh - 1) {
+        for x in 1..(gw - 1) {
+            let center = gray.get_pixel(x, y).0[0] as f64;
+            let left = gray.get_pixel(x - 1, y).0[0] as f64;
+            let right = gray.get_pixel(x + 1, y).0[0] as f64;
+            let up = gray.get_pixel(x, y - 1).0[0] as f64;
+            let down = gray.get_pixel(x, y + 1).0[0] as f64;
+            let lap = 4.0 * center - left - right - up - down;
+            sum_sq += lap * lap;
+        }
+    }
+    if count == 0 {
+        0.0
+    } else {
+        sum_sq / count as f64
+    }
 }
 
 /// Generate a thumbnail for the given source image.
@@ -56,6 +102,7 @@ pub fn generate_thumbnail(
                 return Some(ThumbnailResult {
                     path: thumb_path.display().to_string(),
                     dhash: None,
+                    blur_score: None,
                 });
             }
         }
@@ -87,6 +134,7 @@ pub fn generate_thumbnail(
     let img = crate::exif::apply_orientation(img, orientation);
 
     let dhash = compute_dhash(&img);
+    let blur_score = compute_blur_score(&img);
 
     let max_dim = 300u32;
     let (w, h) = (img.width(), img.height());
@@ -115,6 +163,7 @@ pub fn generate_thumbnail(
     Some(ThumbnailResult {
         path: thumb_path.display().to_string(),
         dhash: Some(dhash),
+        blur_score: Some(blur_score),
     })
 }
 
@@ -142,6 +191,7 @@ pub fn generate_pdf_thumbnail(
                 return Some(ThumbnailResult {
                     path: thumb_path.display().to_string(),
                     dhash: None,
+                    blur_score: None,
                 });
             }
         }
@@ -249,6 +299,7 @@ pub fn generate_pdf_thumbnail(
     Some(ThumbnailResult {
         path: thumb_path.display().to_string(),
         dhash: Some(dhash),
+        blur_score: None,
     })
 }
 
@@ -276,6 +327,7 @@ pub fn generate_video_thumbnail(
                 return Some(ThumbnailResult {
                     path: thumb_path.display().to_string(),
                     dhash: None,
+                    blur_score: None,
                 });
             }
         }
@@ -353,6 +405,7 @@ pub fn generate_video_thumbnail(
     Some(ThumbnailResult {
         path: thumb_path.display().to_string(),
         dhash: Some(dhash),
+        blur_score: None,
     })
 }
 
@@ -453,6 +506,80 @@ mod tests {
         assert!(result.is_some());
         let thumb_img = image::open(result.unwrap().path).expect("open");
         assert_eq!(thumb_img.width(), 100);
+    }
+
+    #[test]
+    fn blur_score_sharp_image_higher_than_blurry() {
+        let src_dir = tempfile::tempdir().expect("tempdir");
+        // Sharp: high-contrast checkerboard
+        let sharp_path = src_dir.path().join("sharp.png");
+        let sharp_img = image::RgbImage::from_fn(200, 200, |x, y| {
+            if (x / 8 + y / 8) % 2 == 0 {
+                image::Rgb([255u8, 255, 255])
+            } else {
+                image::Rgb([0u8, 0, 0])
+            }
+        });
+        image::DynamicImage::ImageRgb8(sharp_img.clone())
+            .save(&sharp_path)
+            .unwrap();
+
+        // Blurry: solid gray (no edges)
+        let blurry_path = src_dir.path().join("blurry.png");
+        let blurry_img = image::RgbImage::from_pixel(200, 200, image::Rgb([128u8, 128, 128]));
+        image::DynamicImage::ImageRgb8(blurry_img)
+            .save(&blurry_path)
+            .unwrap();
+
+        let sharp_dyn = image::open(&sharp_path).unwrap();
+        let blurry_dyn = image::open(&blurry_path).unwrap();
+        let sharp_score = compute_blur_score(&sharp_dyn);
+        let blurry_score = compute_blur_score(&blurry_dyn);
+        assert!(
+            sharp_score > blurry_score,
+            "sharp={sharp_score} should be > blurry={blurry_score}"
+        );
+        assert_eq!(blurry_score, 0.0, "solid gray has no Laplacian response");
+    }
+
+    #[test]
+    fn blur_score_tiny_image_returns_zero() {
+        let img = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            2,
+            2,
+            image::Rgb([128u8, 128, 128]),
+        ));
+        assert_eq!(compute_blur_score(&img), 0.0);
+    }
+
+    #[test]
+    fn thumbnail_result_has_blur_score_for_fresh_image() {
+        let src_dir = tempfile::tempdir().expect("tempdir");
+        let thumb_dir = tempfile::tempdir().expect("tempdir");
+        let source = create_test_image(src_dir.path(), "blur_test.png", 300, 300);
+        let result = generate_thumbnail(&source, thumb_dir.path(), "blur_test.png");
+        assert!(result.is_some());
+        let tr = result.unwrap();
+        assert!(
+            tr.blur_score.is_some(),
+            "fresh thumbnail should have blur_score"
+        );
+    }
+
+    #[test]
+    fn thumbnail_result_no_blur_score_for_cached() {
+        let src_dir = tempfile::tempdir().expect("tempdir");
+        let thumb_dir = tempfile::tempdir().expect("tempdir");
+        let source = create_test_image(src_dir.path(), "cache_blur.png", 300, 300);
+        // Generate once
+        let _r1 = generate_thumbnail(&source, thumb_dir.path(), "cache_blur.png");
+        // Second call should reuse cache → blur_score None
+        let r2 = generate_thumbnail(&source, thumb_dir.path(), "cache_blur.png");
+        assert!(r2.is_some());
+        assert!(
+            r2.unwrap().blur_score.is_none(),
+            "cached thumbnail should have no blur_score"
+        );
     }
 
     #[test]

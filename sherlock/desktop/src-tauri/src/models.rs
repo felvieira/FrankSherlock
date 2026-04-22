@@ -108,6 +108,12 @@ pub struct ParsedQuery {
     pub lens_model: Option<String>,
     #[serde(default)]
     pub time_of_day: Option<String>,
+    /// "selfie" | "group" | "landscape" from shot: token
+    #[serde(default)]
+    pub shot_kind: Option<String>,
+    /// Some(true) = only blurry, Some(false) = exclude blurry, None = no filter
+    #[serde(default)]
+    pub blur: Option<bool>,
 }
 
 impl ParsedQuery {
@@ -127,6 +133,8 @@ impl ParsedQuery {
             camera_model: None,
             lens_model: None,
             time_of_day: None,
+            shot_kind: None,
+            blur: None,
         }
     }
 }
@@ -290,6 +298,7 @@ pub struct FileRecordUpsert {
     pub shutter_speed: Option<f64>,
     pub aperture: Option<f64>,
     pub time_of_day: String,
+    pub blur_score: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

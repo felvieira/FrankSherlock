@@ -1,5 +1,6 @@
 mod autocomplete;
 mod classify;
+mod clustering;
 mod config;
 mod db;
 mod error;
@@ -1656,6 +1657,7 @@ pub fn run() {
                 // Full read-write mode
                 db::recover_incomplete_scan_jobs(&paths.db_file).ok();
                 backfill_exif_extras(&paths.db_file).ok();
+                clustering::backfill_shot_kind(&paths.db_file).ok();
 
                 match db::startup_health_check(&paths.db_file, &paths.db_dir) {
                     Ok(HealthCheckOutcome::RestoredFromBackup) => {
@@ -1811,7 +1813,17 @@ pub fn run() {
             filters::list_cameras_cmd,
             filters::list_lenses_cmd,
             autocomplete::suggest_cmd,
-            timeline::list_timeline_buckets_cmd
+            timeline::list_timeline_buckets_cmd,
+            clustering::recompute_events_cmd,
+            clustering::list_events_cmd,
+            clustering::detect_trips_cmd,
+            clustering::list_trips_cmd,
+            clustering::find_bursts_cmd,
+            clustering::generate_year_review_cmd,
+            clustering::set_dedup_policy_cmd,
+            clustering::get_dedup_policy_cmd,
+            clustering::apply_dedup_policy_cmd,
+            clustering::backfill_shot_kind_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

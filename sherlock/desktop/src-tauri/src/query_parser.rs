@@ -107,6 +107,27 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         working_query
     };
 
+    // Extract shot:selfie|group|landscape
+    let mut shot_kind: Option<String> = None;
+    let shot_re = Regex::new(r#"(?i)\bshot:(\S+)"#).expect("valid regex");
+    let working_query = if let Some(cap) = shot_re.captures(&working_query) {
+        shot_kind = cap.get(1).map(|m| m.as_str().to_lowercase());
+        shot_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
+    // Extract blur:true|false
+    let mut blur: Option<bool> = None;
+    let blur_re = Regex::new(r#"(?i)\bblur:(true|false|yes|no|1|0)\b"#).expect("valid regex");
+    let working_query = if let Some(cap) = blur_re.captures(&working_query) {
+        let val = cap.get(1).map(|m| m.as_str().to_lowercase()).unwrap_or_default();
+        blur = Some(matches!(val.as_str(), "true" | "yes" | "1"));
+        blur_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
     let mut media_types = Vec::new();
     let mut min_confidence = None;
     let mut date_from = None;
@@ -157,6 +178,12 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
     if time_of_day.is_some() {
         score += 0.15;
     }
+    if shot_kind.is_some() {
+        score += 0.15;
+    }
+    if blur.is_some() {
+        score += 0.1;
+    }
 
     // Strip matched media keywords from query text, longest patterns first
     let mut query_text = working_query.clone();
@@ -183,6 +210,8 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         camera_model,
         lens_model,
         time_of_day,
+        shot_kind,
+        blur,
     }
 }
 

@@ -541,6 +541,7 @@ struct ThumbnailOnlyResult {
     thumb_path: Option<String>,
     location_text: String,
     dhash: Option<u64>,
+    blur_score: Option<f64>,
     camera_model: String,
     lens_model: String,
     iso: Option<i64>,
@@ -598,15 +599,16 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         crate::exif::extract_scan_exif(abs)
     };
 
-    let (thumb_path, dhash) = match thumb_result {
-        Some(tr) => (Some(tr.path), tr.dhash),
-        None => (None, None),
+    let (thumb_path, dhash, blur_score) = match thumb_result {
+        Some(tr) => (Some(tr.path), tr.dhash, tr.blur_score),
+        None => (None, None, None),
     };
 
     ThumbnailOnlyResult {
         thumb_path,
         location_text: exif_location.location_text,
         dhash,
+        blur_score,
         camera_model: exif_scan.camera_model,
         lens_model: exif_scan.lens_model,
         iso: exif_scan.iso,
@@ -670,6 +672,7 @@ fn probe_to_minimal_record(
         shutter_speed: thumb_result.shutter_speed,
         aperture: thumb_result.aperture,
         time_of_day: thumb_result.time_of_day.clone(),
+        blur_score: thumb_result.blur_score,
     }
 }
 
@@ -1046,6 +1049,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         db::upsert_file_record(&db_path, &rec).expect("upsert");
 

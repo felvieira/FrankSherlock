@@ -305,6 +305,95 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
             CREATE INDEX IF NOT EXISTS idx_files_time_of_day ON files(time_of_day);
             "#,
         ),
+        // Migration 14: Events + event_files tables for photo-session clustering
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL DEFAULT '',
+                started_at  INTEGER NOT NULL DEFAULT 0,
+                ended_at    INTEGER NOT NULL DEFAULT 0,
+                centroid_lat REAL,
+                centroid_lon REAL,
+                cover_file_id INTEGER,
+                trip_id     INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS event_files (
+                event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                file_id  INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                UNIQUE(event_id, file_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_event_files_file_id ON event_files(file_id);
+            "#,
+        ),
+        // Migration 15: Trips table
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS trips (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT NOT NULL DEFAULT '',
+                started_at  INTEGER NOT NULL DEFAULT 0,
+                ended_at    INTEGER NOT NULL DEFAULT 0,
+                event_count INTEGER NOT NULL DEFAULT 0,
+                cover_file_id INTEGER
+            );
+            "#,
+        ),
+        // Migration 16: blur_score column + shot_kind column on files
+        M::up(
+            r#"
+            ALTER TABLE files ADD COLUMN blur_score REAL;
+            ALTER TABLE files ADD COLUMN shot_kind TEXT NOT NULL DEFAULT '';
+            CREATE INDEX IF NOT EXISTS idx_files_shot_kind ON files(shot_kind);
+            "#,
+        ),
+        // Migration 17: dominant_color column (packed 0xRRGGBB)
+        M::up(
+            r#"
+            ALTER TABLE files ADD COLUMN dominant_color INTEGER;
+            "#,
+        ),
+        // Migration 18: dedup_policy table + qr_codes column
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS dedup_policy (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                strategy TEXT NOT NULL CHECK(strategy IN ('keep_largest','keep_oldest','keep_in_album')),
+                enabled  INTEGER NOT NULL DEFAULT 1
+            );
+            ALTER TABLE files ADD COLUMN qr_codes TEXT NOT NULL DEFAULT '';
+            "#,
+        ),
+        // Migration 19: saved_searches for alerts
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS saved_searches (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL DEFAULT '',
+                query           TEXT NOT NULL DEFAULT '',
+                notify          INTEGER NOT NULL DEFAULT 0,
+                last_match_id   INTEGER NOT NULL DEFAULT 0,
+                last_checked_at INTEGER NOT NULL DEFAULT 0
+            );
+            "#,
+        ),
+        // Migration 20: tag_rules for path-pattern auto-tagging
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS tag_rules (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                pattern TEXT NOT NULL DEFAULT '',
+                tag     TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1
+            );
+            "#,
+        ),
+        // Migration 21: album tag inheritance column
+        M::up(
+            r#"
+            ALTER TABLE albums ADD COLUMN tag TEXT NOT NULL DEFAULT '';
+            "#,
+        ),
     ]);
 
     migrations
@@ -870,14 +959,16 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             confidence, lang_hint, mtime_ns, size_bytes, fingerprint,
             scan_marker, updated_at, deleted_at, location_text, dhash,
             duration_secs, video_width, video_height, video_codec, audio_codec,
-            camera_model, lens_model, iso, shutter_speed, aperture, time_of_day
+            camera_model, lens_model, iso, shutter_speed, aperture, time_of_day,
+            blur_score
         ) VALUES (
             ?1, ?2, ?3, ?4,
             ?5, ?6, ?7, ?8,
             ?9, ?10, ?11, ?12, ?13,
             ?14, ?15, NULL, ?16, ?17,
             ?18, ?19, ?20, ?21, ?22,
-            ?23, ?24, ?25, ?26, ?27, ?28
+            ?23, ?24, ?25, ?26, ?27, ?28,
+            ?29
         )
         ON CONFLICT(root_id, rel_path) DO UPDATE SET
             filename = excluded.filename,
@@ -906,7 +997,8 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             iso = COALESCE(excluded.iso, files.iso),
             shutter_speed = COALESCE(excluded.shutter_speed, files.shutter_speed),
             aperture = COALESCE(excluded.aperture, files.aperture),
-            time_of_day = CASE WHEN excluded.time_of_day != '' THEN excluded.time_of_day ELSE files.time_of_day END
+            time_of_day = CASE WHEN excluded.time_of_day != '' THEN excluded.time_of_day ELSE files.time_of_day END,
+            blur_score = COALESCE(excluded.blur_score, files.blur_score)
         "#,
         params![
             record.root_id,
@@ -937,6 +1029,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             record.shutter_speed,
             record.aperture,
             record.time_of_day,
+            record.blur_score,
         ],
     )?;
 
@@ -1718,6 +1811,17 @@ fn search_images_normalized(
         where_clauses.push("f.time_of_day = ?".to_string());
         bind_values.push(Value::Text(tod.clone()));
     }
+    if let Some(ref sk) = parsed.shot_kind {
+        where_clauses.push("f.shot_kind = ?".to_string());
+        bind_values.push(Value::Text(sk.clone()));
+    }
+    if let Some(is_blurry) = parsed.blur {
+        if is_blurry {
+            where_clauses.push("f.blur_score IS NOT NULL AND f.blur_score < 100.0".to_string());
+        } else {
+            where_clauses.push("(f.blur_score IS NULL OR f.blur_score >= 100.0)".to_string());
+        }
+    }
 
     let media_types = normalize_media_types(&request.media_types);
     if !media_types.is_empty() {
@@ -1879,6 +1983,17 @@ fn search_like_fallback(
     if let Some(ref tod) = parsed.time_of_day {
         where_clauses.push("f.time_of_day = ?".to_string());
         bind_values.push(Value::Text(tod.clone()));
+    }
+    if let Some(ref sk) = parsed.shot_kind {
+        where_clauses.push("f.shot_kind = ?".to_string());
+        bind_values.push(Value::Text(sk.clone()));
+    }
+    if let Some(is_blurry) = parsed.blur {
+        if is_blurry {
+            where_clauses.push("f.blur_score IS NOT NULL AND f.blur_score < 100.0".to_string());
+        } else {
+            where_clauses.push("(f.blur_score IS NULL OR f.blur_score >= 100.0)".to_string());
+        }
     }
 
     let media_types = normalize_media_types(&request.media_types);
@@ -3992,6 +4107,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         }
     }
 
@@ -4039,6 +4155,7 @@ mod tests {
                 shutter_speed: None,
                 aperture: None,
                 time_of_day: String::new(),
+                blur_score: None,
             };
             upsert_file_record(&db_path, &rec).expect("upsert");
         }
@@ -4094,6 +4211,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4142,6 +4260,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4193,6 +4312,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         touch_file_scan_marker(&db_path, root_id, "a.jpg", 2).expect("touch");
@@ -4243,6 +4363,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         let files = load_existing_files(&db_path, root_id).expect("load");
@@ -4284,6 +4405,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         mark_missing_as_deleted(&db_path, root_id, 99).expect("delete");
@@ -4702,6 +4824,7 @@ mod tests {
                 shutter_speed: None,
                 aperture: None,
                 time_of_day: String::new(),
+                blur_score: None,
             };
             upsert_file_record(db_path, &rec).expect("upsert");
         }
@@ -4768,11 +4891,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (14 migrations applied → version 14)
+        // Verify user_version is set (22 migrations applied → version 22)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 14);
+        assert_eq!(version, 22);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -4816,8 +4939,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 14 migrations (indices 0..13), so user_version should be 14
-        assert_eq!(version, 14);
+        // We have 22 migrations (indices 0..21), so user_version should be 22
+        assert_eq!(version, 22);
     }
 
     #[test]
@@ -5770,6 +5893,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -5802,6 +5926,7 @@ mod tests {
             shutter_speed: None,
             aperture: None,
             time_of_day: String::new(),
+            blur_score: None,
         };
         upsert_file_record(&db_path, &rec2).expect("upsert");
 
