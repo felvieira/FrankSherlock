@@ -31,6 +31,7 @@ import type {
   Suggestion,
   SearchRequest,
   SearchResponse,
+  TagRule,
   TimelineBucket,
   TripSummary,
   VenvProvisionStatus,
@@ -155,6 +156,10 @@ export async function addFilesToAlbum(albumId: number, fileIds: number[]): Promi
   return invoke<number>("add_files_to_album", { albumId, fileIds });
 }
 
+export async function updateAlbumTag(albumId: number, tag: string): Promise<void> {
+  return invoke<void>("update_album_tag", { albumId, tag });
+}
+
 // ── Smart Folders ───────────────────────────────────────────────────
 
 export async function createSmartFolder(name: string, query: string): Promise<SmartFolder> {
@@ -167,6 +172,28 @@ export async function deleteSmartFolder(folderId: number): Promise<void> {
 
 export async function listSmartFolders(): Promise<SmartFolder[]> {
   return invoke<SmartFolder[]>("list_smart_folders");
+}
+
+export async function createFaceSmartAlbum(personName: string): Promise<SmartFolder> {
+  return invoke<SmartFolder>("create_face_smart_album", { personName });
+}
+
+// ── Tag Rules ───────────────────────────────────────────────────────
+
+export async function listTagRules(): Promise<TagRule[]> {
+  return invoke<TagRule[]>("list_tag_rules");
+}
+
+export async function createTagRule(pattern: string, tag: string): Promise<TagRule> {
+  return invoke<TagRule>("create_tag_rule", { pattern, tag });
+}
+
+export async function deleteTagRule(ruleId: number): Promise<void> {
+  return invoke<void>("delete_tag_rule", { ruleId });
+}
+
+export async function setTagRuleEnabled(ruleId: number, enabled: boolean): Promise<void> {
+  return invoke<void>("set_tag_rule_enabled", { ruleId, enabled });
 }
 
 // ── Duplicates ──────────────────────────────────────────────────────

@@ -208,6 +208,7 @@ export type FileProperties = {
 export type Album = {
   id: number;
   name: string;
+  tag: string;
   createdAt: number;
   fileCount: number;
 };
@@ -217,6 +218,22 @@ export type SmartFolder = {
   name: string;
   query: string;
   createdAt: number;
+};
+
+export type TagRule = {
+  id: number;
+  pattern: string;
+  tag: string;
+  enabled: boolean;
+};
+
+export type SavedSearch = {
+  id: number;
+  name: string;
+  query: string;
+  notify: boolean;
+  lastMatchId: number;
+  lastCheckedAt: number;
 };
 
 export type PdfPassword = {

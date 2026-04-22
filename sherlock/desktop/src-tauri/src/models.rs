@@ -148,6 +148,7 @@ impl ParsedQuery {
 pub struct Album {
     pub id: i64,
     pub name: String,
+    pub tag: String,
     pub created_at: i64,
     pub file_count: u64,
 }
@@ -159,6 +160,26 @@ pub struct SmartFolder {
     pub name: String,
     pub query: String,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagRule {
+    pub id: i64,
+    pub pattern: String,
+    pub tag: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedSearch {
+    pub id: i64,
+    pub name: String,
+    pub query: String,
+    pub notify: bool,
+    pub last_match_id: i64,
+    pub last_checked_at: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

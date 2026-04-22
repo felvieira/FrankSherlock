@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  cancelScan, copyFilesToClipboard, deleteFiles, ensureDatabase,
+  cancelScan, copyFilesToClipboard, createFaceSmartAlbum, deleteFiles, ensureDatabase,
   generateYearReview, getCliFolderPath, getFileMetadata, getFileProperties, listRoots,
   removeRoot, renameFile, reorderRoots, startScan, updateFileMetadata,
 } from "./api";
@@ -44,6 +44,7 @@ import SimilarResultsModal from "./components/modals/SimilarResultsModal";
 import ModelInfoModal from "./components/modals/ModelInfoModal";
 import CreateAlbumModal from "./components/modals/CreateAlbumModal";
 import CreateSmartFolderModal from "./components/modals/CreateSmartFolderModal";
+import TagRulesModal from "./components/modals/TagRulesModal";
 import { useToast } from "./hooks/useToast";
 import { useUserConfig } from "./hooks/useUserConfig";
 import { useGridColumns } from "./hooks/useGridColumns";
@@ -94,6 +95,7 @@ export default function App() {
   const [pdfPasswordsMode, setPdfPasswordsMode] = useState(false);
   const [showExportCatalog, setShowExportCatalog] = useState(false);
   const [showImportCatalog, setShowImportCatalog] = useState(false);
+  const [showTagRules, setShowTagRules] = useState(false);
 
   /* ── Directory tree: derived from query ── */
   const selectedSubdir = useMemo(() => {
@@ -636,6 +638,7 @@ export default function App() {
       {showImportCatalog && (
         <ImportCatalogModal onClose={() => setShowImportCatalog(false)} />
       )}
+      {showTagRules && <TagRulesModal onClose={() => setShowTagRules(false)} />}
       {remapTargetRoot && (
         <RemapRootModal
           oldPath={remapTargetRoot.rootPath}
@@ -798,6 +801,7 @@ export default function App() {
               setError(errorMessage(err));
             }
           }}
+          onOpenTagRules={() => setShowTagRules(true)}
           onOpenPdfPasswords={enterPdfPasswordsMode}
           onOpenFaces={enterFacesMode}
           onExportCatalog={() => setShowExportCatalog(true)}
@@ -850,6 +854,15 @@ export default function App() {
             }}
             onNotice={setNotice}
             onError={setError}
+            onCreateFaceSmartAlbum={async (personName) => {
+              try {
+                const folder = await createFaceSmartAlbum(personName);
+                setNotice(`Smart album "${folder.name}" created`);
+                await smartFolderManager.refreshSmartFolders();
+              } catch (err) {
+                setError(errorMessage(err));
+              }
+            }}
           />
         ) : pdfPasswordsMode ? (
           <PdfPasswordsView

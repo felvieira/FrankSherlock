@@ -177,6 +177,19 @@ fn run_scan_job_internal(
     let mut last_cursor: Option<String> = job.cursor_rel_path.clone();
     const UNCHANGED_BATCH_SIZE: usize = 200;
 
+    // Load enabled tag rules and compile their regexes once for the whole scan.
+    let compiled_tag_rules: Vec<(regex::Regex, String)> = {
+        let rules = db::get_enabled_tag_rules(db_path).unwrap_or_default();
+        rules
+            .into_iter()
+            .filter_map(|r| {
+                regex::Regex::new(&r.pattern)
+                    .ok()
+                    .map(|re| (re, r.tag))
+            })
+            .collect()
+    };
+
     // Determine whether to skip the thumbnailing phase (already done on a previous run).
     let skip_thumbnailing = job.phase == "classifying";
 
@@ -284,6 +297,7 @@ fn run_scan_job_internal(
                         probe,
                         &fingerprint,
                         &thumb_result,
+                        &compiled_tag_rules,
                     );
                     db::upsert_file_record(db_path, &record)?;
                     if let Some(ref thumb) = thumb_result.thumb_path {
@@ -369,6 +383,7 @@ fn run_scan_job_internal(
                         probe,
                         &fingerprint,
                         &thumb_result,
+                        &compiled_tag_rules,
                     );
                     db::upsert_file_record(db_path, &record)?;
                     if let Some(ref thumb) = thumb_result.thumb_path {
@@ -641,12 +656,22 @@ fn probe_to_minimal_record(
     probe: &FileProbe,
     fingerprint: &str,
     thumb_result: &ThumbnailOnlyResult,
+    tag_rules: &[(regex::Regex, String)],
 ) -> FileRecordUpsert {
     let video_meta = if video::is_video_file(Path::new(&probe.abs_path)) {
         video::extract_metadata(Path::new(&probe.abs_path))
     } else {
         None
     };
+
+    // Apply path-pattern tag rules to canonical_mentions.
+    let mut matched_tags: Vec<String> = Vec::new();
+    for (re, tag) in tag_rules {
+        if re.is_match(&probe.rel_path) && !matched_tags.contains(tag) {
+            matched_tags.push(tag.clone());
+        }
+    }
+    let canonical_mentions = matched_tags.join(",");
 
     FileRecordUpsert {
         root_id,
@@ -656,7 +681,7 @@ fn probe_to_minimal_record(
         media_type: infer_media_type_from_extension(&probe.filename).to_string(),
         description: String::new(),
         extracted_text: String::new(),
-        canonical_mentions: String::new(),
+        canonical_mentions,
         confidence: 0.0,
         lang_hint: String::new(),
         mtime_ns: probe.mtime_ns,

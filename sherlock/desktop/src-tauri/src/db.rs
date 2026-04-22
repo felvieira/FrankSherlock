@@ -10,7 +10,7 @@ use crate::models::{
     Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
     FileProperties, FileRecordUpsert, HealthCheckOutcome, ParsedQuery, PdfPassword,
     ProtectedPdfInfo, PurgeResult, RootInfo, ScanJobState, ScanJobStatus, SearchItem,
-    SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder, SubdirEntry,
+    SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder, SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
 
@@ -2359,9 +2359,19 @@ pub fn create_album(db_path: &Path, name: &str) -> AppResult<Album> {
     Ok(Album {
         id,
         name: name.to_string(),
+        tag: String::new(),
         created_at: now,
         file_count: 0,
     })
+}
+
+pub fn update_album_tag(db_path: &Path, album_id: i64, tag: &str) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "UPDATE albums SET tag = ?1 WHERE id = ?2",
+        params![tag, album_id],
+    )?;
+    Ok(())
 }
 
 pub fn delete_album(db_path: &Path, album_id: i64) -> AppResult<()> {
@@ -2373,7 +2383,7 @@ pub fn delete_album(db_path: &Path, album_id: i64) -> AppResult<()> {
 pub fn list_albums(db_path: &Path) -> AppResult<Vec<Album>> {
     let conn = open_conn(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT a.id, a.name, a.created_at,
+        "SELECT a.id, a.name, a.tag, a.created_at,
                 (SELECT COUNT(*) FROM album_files af
                  JOIN files f ON f.id = af.file_id
                  WHERE af.album_id = a.id AND f.deleted_at IS NULL) AS file_count
@@ -2383,8 +2393,9 @@ pub fn list_albums(db_path: &Path) -> AppResult<Vec<Album>> {
         Ok(Album {
             id: row.get(0)?,
             name: row.get(1)?,
-            created_at: row.get(2)?,
-            file_count: row.get::<_, i64>(3)? as u64,
+            tag: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+            created_at: row.get(3)?,
+            file_count: row.get::<_, i64>(4)? as u64,
         })
     })?;
     let mut albums = Vec::new();
@@ -2396,6 +2407,16 @@ pub fn list_albums(db_path: &Path) -> AppResult<Vec<Album>> {
 
 pub fn add_files_to_album(db_path: &Path, album_id: i64, file_ids: &[i64]) -> AppResult<u64> {
     let conn = open_conn(db_path)?;
+    // Fetch album tag for inheritance
+    let album_tag: String = conn
+        .query_row(
+            "SELECT COALESCE(tag, '') FROM albums WHERE id = ?1",
+            params![album_id],
+            |r| r.get(0),
+        )
+        .unwrap_or_default();
+    let tag_trimmed = album_tag.trim().to_string();
+
     let now = now_epoch_secs();
     let mut count = 0u64;
     for fid in file_ids {
@@ -2404,6 +2425,20 @@ pub fn add_files_to_album(db_path: &Path, album_id: i64, file_ids: &[i64]) -> Ap
             params![album_id, fid, now],
         )?;
         count += inserted as u64;
+
+        // Album tag inheritance: append tag to canonical_mentions if not already present
+        if !tag_trimmed.is_empty() {
+            conn.execute(
+                "UPDATE files
+                 SET canonical_mentions = CASE
+                   WHEN canonical_mentions = '' THEN ?1
+                   WHEN instr(',' || canonical_mentions || ',', ',' || ?1 || ',') > 0 THEN canonical_mentions
+                   ELSE canonical_mentions || ',' || ?1
+                 END
+                 WHERE id = ?2",
+                params![tag_trimmed, fid],
+            )?;
+        }
     }
     Ok(count)
 }
@@ -2477,6 +2512,86 @@ pub fn reorder_albums(db_path: &Path, ids: &[i64]) -> AppResult<()> {
 
 pub fn reorder_smart_folders(db_path: &Path, ids: &[i64]) -> AppResult<()> {
     reorder_items(&open_conn(db_path)?, "smart_folders", ids)
+}
+
+// ── Face smart albums ───────────────────────────────────────────────
+
+/// Creates a smart folder that surfaces all photos containing the named person.
+pub fn create_face_smart_album(db_path: &Path, person_name: &str) -> AppResult<SmartFolder> {
+    let query = format!("person:{person_name}");
+    create_smart_folder(db_path, &format!("📷 {person_name}"), &query)
+}
+
+// ── Tag Rules ───────────────────────────────────────────────────────
+
+pub fn list_tag_rules(db_path: &Path) -> AppResult<Vec<TagRule>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt =
+        conn.prepare("SELECT id, pattern, tag, enabled FROM tag_rules ORDER BY id")?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TagRule {
+            id: row.get(0)?,
+            pattern: row.get(1)?,
+            tag: row.get(2)?,
+            enabled: row.get::<_, i64>(3)? != 0,
+        })
+    })?;
+    let mut rules = Vec::new();
+    for row in rows {
+        rules.push(row?);
+    }
+    Ok(rules)
+}
+
+pub fn create_tag_rule(db_path: &Path, pattern: &str, tag: &str) -> AppResult<TagRule> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "INSERT INTO tag_rules (pattern, tag, enabled) VALUES (?1, ?2, 1)",
+        params![pattern, tag],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(TagRule {
+        id,
+        pattern: pattern.to_string(),
+        tag: tag.to_string(),
+        enabled: true,
+    })
+}
+
+pub fn delete_tag_rule(db_path: &Path, rule_id: i64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute("DELETE FROM tag_rules WHERE id = ?1", params![rule_id])?;
+    Ok(())
+}
+
+pub fn set_tag_rule_enabled(db_path: &Path, rule_id: i64, enabled: bool) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "UPDATE tag_rules SET enabled = ?1 WHERE id = ?2",
+        params![enabled as i64, rule_id],
+    )?;
+    Ok(())
+}
+
+/// Returns only enabled tag rules — used at scan time.
+pub fn get_enabled_tag_rules(db_path: &Path) -> AppResult<Vec<TagRule>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, pattern, tag, enabled FROM tag_rules WHERE enabled = 1 ORDER BY id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TagRule {
+            id: row.get(0)?,
+            pattern: row.get(1)?,
+            tag: row.get(2)?,
+            enabled: true,
+        })
+    })?;
+    let mut rules = Vec::new();
+    for row in rows {
+        rules.push(row?);
+    }
+    Ok(rules)
 }
 
 // ── PDF Passwords ───────────────────────────────────────────────────
@@ -7515,5 +7630,96 @@ mod tests {
         let res = search_images(&db_path, &req).expect("search color");
         assert_eq!(res.total, 1);
         assert_eq!(res.items[0].rel_path, "red.jpg");
+    }
+
+    // -----------------------------------------------------------------------
+    // Tag rules tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_tag_rules_crud() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        // Empty by default
+        let rules = list_tag_rules(&db_path).expect("list empty");
+        assert!(rules.is_empty());
+
+        // Create a rule
+        let rule = create_tag_rule(&db_path, r"^Screenshots/", "screenshot").expect("create");
+        assert_eq!(rule.pattern, r"^Screenshots/");
+        assert_eq!(rule.tag, "screenshot");
+        assert!(rule.enabled);
+
+        // List returns the rule
+        let rules = list_tag_rules(&db_path).expect("list one");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, rule.id);
+
+        // Toggle disabled
+        set_tag_rule_enabled(&db_path, rule.id, false).expect("disable");
+        let enabled_only = get_enabled_tag_rules(&db_path).expect("enabled only");
+        assert!(enabled_only.is_empty(), "disabled rule should not appear in enabled list");
+
+        // Delete
+        delete_tag_rule(&db_path, rule.id).expect("delete");
+        let rules = list_tag_rules(&db_path).expect("after delete");
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn test_album_tag_inheritance() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root_id = upsert_root(&db_path, "/tmp/demo").expect("root");
+
+        let rec = sample_record(root_id, "photo.jpg", "fp-photo");
+        let file_id = upsert_file_record(&db_path, &rec).expect("upsert");
+
+        // Album with a tag
+        let album = create_album(&db_path, "Vacation").expect("create album");
+        update_album_tag(&db_path, album.id, "vacation").expect("set tag");
+
+        add_files_to_album(&db_path, album.id, &[file_id]).expect("add to album");
+
+        // canonical_mentions should now contain "vacation"
+        let conn = open_conn(&db_path).unwrap();
+        let mentions: String = conn
+            .query_row(
+                "SELECT canonical_mentions FROM files WHERE id = ?1",
+                params![file_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            mentions.contains("vacation"),
+            "canonical_mentions should include 'vacation', got: {mentions}"
+        );
+
+        // Adding twice should not duplicate the tag
+        add_files_to_album(&db_path, album.id, &[file_id]).expect("add again");
+        let mentions2: String = conn
+            .query_row(
+                "SELECT canonical_mentions FROM files WHERE id = ?1",
+                params![file_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let count = mentions2.split(',').filter(|s| *s == "vacation").count();
+        assert_eq!(count, 1, "tag should not be duplicated: {mentions2}");
+    }
+
+    #[test]
+    fn test_face_smart_album_creates_smart_folder() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+
+        let sf = create_face_smart_album(&db_path, "Alice").expect("create");
+        assert!(sf.name.contains("Alice"));
+        assert_eq!(sf.query, "person:Alice");
+
+        let folders = list_smart_folders(&db_path).expect("list");
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].id, sf.id);
     }
 }

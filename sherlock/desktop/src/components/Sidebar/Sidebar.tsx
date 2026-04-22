@@ -46,6 +46,7 @@ type SidebarProps = {
   onExportCatalog?: () => void;
   onImportCatalog?: () => void;
   onGenerateYearReview?: () => void;
+  onOpenTagRules?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -65,7 +66,7 @@ export default function Sidebar({
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
-  onExportCatalog, onImportCatalog, onGenerateYearReview,
+  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
   onTimelineQueryChange,
@@ -183,7 +184,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onGenerateYearReview || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
+      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -205,6 +206,16 @@ export default function Sidebar({
                 title={`Generate a Year in Review album for ${new Date().getFullYear()}`}
               >
                 Year in Review
+              </button>
+            )}
+            {onOpenTagRules && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onOpenTagRules}
+                title="Manage path-pattern auto-tag rules"
+              >
+                Tag Rules…
               </button>
             )}
             {onOpenPdfPasswords && (

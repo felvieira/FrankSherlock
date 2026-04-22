@@ -23,6 +23,7 @@ type Props = {
   onPreviewFile: (fileIds: number[]) => void;
   onNotice: (msg: string) => void;
   onError: (msg: string) => void;
+  onCreateFaceSmartAlbum?: (personName: string) => void;
 };
 
 type ContextMenuState = {
@@ -36,7 +37,7 @@ type DetailContextMenuState = {
   y: number;
 } | null;
 
-export default function FacesView({ onBack, onSelectPerson, onPreviewFile, onNotice, onError }: Props) {
+export default function FacesView({ onBack, onSelectPerson, onPreviewFile, onNotice, onError, onCreateFaceSmartAlbum }: Props) {
   const [persons, setPersons] = useState<PersonInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -458,6 +459,18 @@ export default function FacesView({ onBack, onSelectPerson, onPreviewFile, onNot
         >
           Shuffle
         </button>
+        {onCreateFaceSmartAlbum && (
+          <button
+            type="button"
+            className="context-menu-item"
+            onClick={() => {
+              setContextMenuState(null);
+              onCreateFaceSmartAlbum(contextMenu.person.name);
+            }}
+          >
+            Create Smart Album
+          </button>
+        )}
       </div>
     );
   }

@@ -33,7 +33,7 @@ use models::{
     Album, DeleteFilesResult, DuplicatesResponse, HealthCheckOutcome, HealthStatus, PdfPassword,
     ProtectedPdfInfo, PurgeResult, RenameFileResult, RetryProtectedPdfsResult, RootInfo,
     RuntimeStatus, ScanJobStatus, SearchRequest, SearchResponse, SetupDownloadStatus, SetupStatus,
-    SmartFolder, SubdirEntry, VenvProvisionStatus,
+    SmartFolder, SubdirEntry, TagRule, VenvProvisionStatus,
 };
 use tauri::Manager;
 use tauri::State;
@@ -612,6 +612,18 @@ fn remove_files_from_album(
         .map_err(|e| e.to_string())
 }
 
+// ── Album tag inheritance command ───────────────────────────────────
+
+#[tauri::command]
+fn update_album_tag(
+    album_id: i64,
+    tag: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::update_album_tag(&state.paths.db_file, album_id, &tag).map_err(|e| e.to_string())
+}
+
 // ── Smart folder commands ───────────────────────────────────────────
 
 #[tauri::command]
@@ -622,6 +634,50 @@ fn create_smart_folder(
 ) -> Result<SmartFolder, String> {
     require_writable(state.inner())?;
     db::create_smart_folder(&state.paths.db_file, &name, &query).map_err(|e| e.to_string())
+}
+
+// ── Face smart album command ─────────────────────────────────────────
+
+#[tauri::command]
+fn create_face_smart_album(
+    person_name: String,
+    state: State<'_, AppState>,
+) -> Result<SmartFolder, String> {
+    require_writable(state.inner())?;
+    db::create_face_smart_album(&state.paths.db_file, &person_name).map_err(|e| e.to_string())
+}
+
+// ── Tag rules commands ───────────────────────────────────────────────
+
+#[tauri::command]
+fn list_tag_rules(state: State<'_, AppState>) -> Result<Vec<TagRule>, String> {
+    db::list_tag_rules(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_tag_rule(
+    pattern: String,
+    tag: String,
+    state: State<'_, AppState>,
+) -> Result<TagRule, String> {
+    require_writable(state.inner())?;
+    db::create_tag_rule(&state.paths.db_file, &pattern, &tag).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_tag_rule(rule_id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::delete_tag_rule(&state.paths.db_file, rule_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_tag_rule_enabled(
+    rule_id: i64,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_writable(state.inner())?;
+    db::set_tag_rule_enabled(&state.paths.db_file, rule_id, enabled).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1780,9 +1836,15 @@ pub fn run() {
             list_albums,
             add_files_to_album,
             remove_files_from_album,
+            update_album_tag,
             create_smart_folder,
             delete_smart_folder,
             list_smart_folders,
+            create_face_smart_album,
+            list_tag_rules,
+            create_tag_rule,
+            delete_tag_rule,
+            set_tag_rule_enabled,
             reorder_roots,
             reorder_albums,
             reorder_smart_folders,
