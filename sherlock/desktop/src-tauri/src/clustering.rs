@@ -424,6 +424,49 @@ fn _find_bursts(conn: &Connection) -> AppResult<Vec<Burst>> {
     Ok(bursts)
 }
 
+// ── Best-of-burst picker ─────────────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BurstWithBest {
+    pub best_file_id: i64,
+    pub member_ids: Vec<i64>,
+    pub reason: String,
+}
+
+/// For each burst, picks the sharpest (lowest `blur_score`) member as the
+/// AI-suggested keeper. Files without a `blur_score` are sorted last.
+pub fn find_bursts_with_best(db_path: &Path) -> AppResult<Vec<BurstWithBest>> {
+    let conn = open_conn(db_path)?;
+    let bursts = _find_bursts(&conn)?;
+    let mut out = Vec::with_capacity(bursts.len());
+    for b in bursts {
+        let ids_csv = b
+            .member_ids
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT id FROM files \
+             WHERE id IN ({}) \
+             ORDER BY CASE WHEN blur_score IS NULL THEN 1 ELSE 0 END ASC, \
+                      blur_score ASC \
+             LIMIT 1",
+            ids_csv
+        );
+        let best: i64 = conn
+            .query_row(&sql, [], |r| r.get::<_, i64>(0))
+            .unwrap_or(b.cover_file_id);
+        out.push(BurstWithBest {
+            best_file_id: best,
+            member_ids: b.member_ids,
+            reason: "sharpest (lowest blur_score)".into(),
+        });
+    }
+    Ok(out)
+}
+
 // ── Shot kind backfill ───────────────────────────────────────────────
 
 /// Derives shot_kind from face detection data:
@@ -658,6 +701,17 @@ pub async fn find_bursts_cmd(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<Vec<Burst>, String> {
     find_bursts(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn find_bursts_with_best_cmd(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Vec<BurstWithBest>, String> {
+    let db = state.paths.db_file.clone();
+    tauri::async_runtime::spawn_blocking(move || find_bursts_with_best(&db))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

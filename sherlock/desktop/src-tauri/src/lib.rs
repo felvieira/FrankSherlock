@@ -1951,6 +1951,7 @@ pub fn run() {
             organize::build_organize_plan_cmd,
             organize::execute_organize_plan_cmd,
             clustering::find_bursts_cmd,
+            clustering::find_bursts_with_best_cmd,
             clustering::generate_year_review_cmd,
             clustering::set_dedup_policy_cmd,
             clustering::get_dedup_policy_cmd,
