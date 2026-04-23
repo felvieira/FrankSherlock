@@ -130,6 +130,15 @@ export default function HelpModal({ onClose }: Props) {
         </div>
 
         <div className="help-section">
+          <h4>Event / Trip filter</h4>
+          <div className="help-examples">
+            <code>event:42</code>
+            <code>trip:7 sunset</code>
+          </div>
+          <p className="help-note-inline">Open the Events or Trips tool to see cluster IDs.</p>
+        </div>
+
+        <div className="help-section">
           <h4>Combined</h4>
           <div className="help-examples">
             <code>anime between 2023 and 2024</code>
