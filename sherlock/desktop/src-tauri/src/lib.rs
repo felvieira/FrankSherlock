@@ -10,6 +10,7 @@ mod filters;
 mod find_similar;
 mod llm;
 mod models;
+mod organize;
 mod pdf;
 mod platform;
 mod portability;
@@ -307,6 +308,13 @@ fn get_scan_job(job_id: i64, state: State<'_, AppState>) -> Result<Option<ScanJo
 #[tauri::command]
 fn list_active_scans(state: State<'_, AppState>) -> Result<Vec<ScanJobStatus>, String> {
     db::list_resumable_scan_jobs(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_face_scan_jobs_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<models::FaceScanJob>, String> {
+    db::face_scan_job_list(&state.paths.db_file).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1060,7 +1068,7 @@ fn get_face_stats(
 
 #[tauri::command]
 fn cluster_faces(state: State<'_, AppState>) -> Result<models::ClusterResult, String> {
-    db::cluster_faces(&state.paths.db_file, 0.30).map_err(|e| e.to_string())
+    db::cluster_faces(&state.paths.db_file, 0.50).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1156,7 +1164,7 @@ fn run_recluster(
         });
     }
 
-    let result = db::recluster_faces(db_path, 0.30)?;
+    let result = db::recluster_faces(db_path, 0.50)?;
     log::info!(
         "Re-clustering complete: {} persons, {} faces assigned",
         result.new_persons,
@@ -1349,6 +1357,11 @@ fn run_face_detection(
 
     let total = files.len() as u64;
 
+    // Checkpoint: mark this face scan as started so a crash can be detected.
+    if let Err(e) = db::face_scan_job_start(db_path, root_id, total) {
+        log::warn!("face_scan_job_start failed: {e}");
+    }
+
     // Set initial detecting progress
     {
         let mut progress = progress_arc.lock().expect("face progress mutex poisoned");
@@ -1442,6 +1455,34 @@ fn run_face_detection(
                 phase: "detecting".into(),
             });
         }
+
+        // Checkpoint after each file so an interrupted scan can be detected.
+        if let Err(e) = db::face_scan_job_tick(
+            db_path,
+            root_id,
+            processed,
+            faces_found,
+            Some(&file.rel_path),
+        ) {
+            log::warn!("face_scan_job_tick failed: {e}");
+        }
+
+        // Incremental clustering every 500 files so partial results are usable
+        // if the scan is interrupted later.
+        if processed > 0 && processed % 500 == 0 && faces_found > 0 {
+            match db::cluster_faces(db_path, 0.50) {
+                Ok(result) => {
+                    log::info!(
+                        "Incremental face clustering at {processed}/{total}: {} new persons, {} faces assigned",
+                        result.new_persons,
+                        result.assigned_faces
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Incremental face clustering failed: {e}");
+                }
+            }
+        }
     }
 
     // Clear progress to signal completion
@@ -1454,7 +1495,7 @@ fn run_face_detection(
 
     // Auto-cluster faces into person groups
     if faces_found > 0 {
-        match db::cluster_faces(db_path, 0.30) {
+        match db::cluster_faces(db_path, 0.50) {
             Ok(result) => {
                 log::info!(
                     "Face clustering: {} new persons, {} faces assigned",
@@ -1466,6 +1507,13 @@ fn run_face_detection(
                 log::warn!("Face clustering failed: {e}");
             }
         }
+    }
+
+    // Clear checkpoint — the scan finished (or was cancelled cleanly after
+    // processing `processed` files; we still clear so it isn't flagged as an
+    // abandoned interrupted scan on next launch).
+    if let Err(e) = db::face_scan_job_clear(db_path, root_id) {
+        log::warn!("face_scan_job_clear failed: {e}");
     }
 
     Ok(())
@@ -1871,6 +1919,7 @@ pub fn run() {
             start_scan,
             get_scan_job,
             list_active_scans,
+            list_face_scan_jobs_cmd,
             get_runtime_status,
             cancel_scan,
             remove_root,
@@ -1946,7 +1995,12 @@ pub fn run() {
             clustering::list_events_cmd,
             clustering::detect_trips_cmd,
             clustering::list_trips_cmd,
+            organize::suggest_event_names_cmd,
+            organize::build_organize_plan_cmd,
+            organize::execute_organize_plan_cmd,
+            organize::rename_by_template_cmd,
             clustering::find_bursts_cmd,
+            clustering::find_bursts_with_best_cmd,
             clustering::generate_year_review_cmd,
             clustering::set_dedup_policy_cmd,
             clustering::get_dedup_policy_cmd,

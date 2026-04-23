@@ -48,6 +48,9 @@ type SidebarProps = {
   onGenerateYearReview?: () => void;
   onOpenTagRules?: () => void;
   onOpenMap?: () => void;
+  onOpenEvents?: () => void;
+  onOpenTrips?: () => void;
+  onOpenBursts?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -71,7 +74,7 @@ export default function Sidebar({
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
-  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules, onOpenMap,
+  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules, onOpenMap, onOpenEvents, onOpenTrips, onOpenBursts,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
   onTimelineQueryChange,
@@ -228,7 +231,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenMap || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
+      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenMap || onOpenEvents || onOpenTrips || onOpenBursts || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -290,6 +293,36 @@ export default function Sidebar({
                 title="Browse photos on a map by GPS location"
               >
                 Map
+              </button>
+            )}
+            {onOpenEvents && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onOpenEvents}
+                title="Browse auto-detected events (groups by time + location)"
+              >
+                Events
+              </button>
+            )}
+            {onOpenTrips && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onOpenTrips}
+                title="Browse auto-detected trips (multi-day event clusters)"
+              >
+                Trips
+              </button>
+            )}
+            {onOpenBursts && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onOpenBursts}
+                title="Review burst shots and keep the AI-picked sharpest one"
+              >
+                Bursts
               </button>
             )}
             {onExportCatalog && (

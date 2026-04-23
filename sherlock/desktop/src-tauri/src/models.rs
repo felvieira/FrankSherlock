@@ -21,6 +21,7 @@ pub enum SortField {
     Relevance,
     #[default]
     DateModified,
+    DateTaken,
     Name,
     Type,
 }
@@ -117,6 +118,12 @@ pub struct ParsedQuery {
     /// Dominant-color filter: packed 0x00RRGGBB. None = no filter.
     #[serde(default)]
     pub color_hex: Option<u32>,
+    /// Filter by event membership via `event:<id>` token.
+    #[serde(default)]
+    pub event_id: Option<i64>,
+    /// Filter by trip membership via `trip:<id>` token (joins via events).
+    #[serde(default)]
+    pub trip_id: Option<i64>,
 }
 
 impl ParsedQuery {
@@ -139,6 +146,8 @@ impl ParsedQuery {
             shot_kind: None,
             blur: None,
             color_hex: None,
+            event_id: None,
+            trip_id: None,
         }
     }
 }
@@ -270,6 +279,18 @@ pub struct ScanJobState {
     pub unchanged: u64,
     pub cursor_rel_path: Option<String>,
     pub phase: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FaceScanJob {
+    pub root_id: i64,
+    pub processed: u64,
+    pub total: u64,
+    pub faces_found: u64,
+    pub cursor_rel_path: Option<String>,
+    pub started_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]

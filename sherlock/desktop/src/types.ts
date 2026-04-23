@@ -31,7 +31,7 @@ export type SearchResponse = {
   parsedQuery: ParsedQuery;
 };
 
-export type SortField = "relevance" | "dateModified" | "name" | "type";
+export type SortField = "relevance" | "dateModified" | "dateTaken" | "name" | "type";
 export type SortOrder = "asc" | "desc";
 
 export type SearchRequest = {
@@ -68,6 +68,16 @@ export type ScanJobStatus = {
   completedAt?: number | null;
   phase: "discovering" | "thumbnailing" | "classifying" | "processing" | "cleanup";
   discoveredFiles: number;
+};
+
+export type FaceScanJob = {
+  rootId: number;
+  processed: number;
+  total: number;
+  facesFound: number;
+  cursorRelPath?: string | null;
+  startedAt: number;
+  updatedAt: number;
 };
 
 export type DbStats = {
@@ -431,6 +441,52 @@ export type TripSummary = {
 export type Burst = {
   coverFileId: number;
   memberIds: number[];
+};
+
+export type BurstWithBest = {
+  bestFileId: number;
+  memberIds: number[];
+  reason: string;
+};
+
+export type SuggestedName = {
+  eventId: number;
+  suggested: string;
+};
+
+export type OrganizeProposal = {
+  eventId: number;
+  folderName: string;
+  fileIds: number[];
+  filePaths: string[];
+};
+
+export type OrganizePlan = {
+  baseDir: string;
+  proposals: OrganizeProposal[];
+  unassignedCount: number;
+};
+
+export type OrganizeRequest = {
+  baseDir: string;
+  mode: "copy" | "move";
+  proposals: { folderName: string; fileIds: number[] }[];
+};
+
+export type OrganizeResult = {
+  processed: number;
+  skipped: number;
+  errors: string[];
+};
+
+export type RenameRequest = {
+  fileIds: number[];
+  template: string;
+};
+
+export type RenameResult = {
+  processed: number;
+  errors: string[];
 };
 
 /** Dedup policy strategy */

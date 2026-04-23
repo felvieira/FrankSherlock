@@ -8,6 +8,7 @@ import {
   getScanJob,
   getSetupStatus,
   listActiveScans,
+  listFaceScanJobs,
   listRoots,
   startScan,
   startSetupDownload,
@@ -159,6 +160,21 @@ export function useScanManager(cb: ScanManagerCallbacks) {
       const interrupted = scans.filter((s) => s.status === "interrupted");
       if (interrupted.length > 0) {
         cb.setShowResumeModal(true);
+      }
+      // Surface unfinished face scans from a prior session (the checkpoint
+      // row is only cleared when run_face_detection completes cleanly).
+      try {
+        const faceJobs = await listFaceScanJobs();
+        if (faceJobs.length > 0) {
+          const job = faceJobs[0];
+          const remaining = Math.max(0, job.total - job.processed);
+          cb.setNotice(
+            `Unfinished face scan detected: ${job.processed}/${job.total} processed` +
+              (remaining > 0 ? ` — ${remaining} remaining. Re-run face detection to resume.` : "."),
+          );
+        }
+      } catch {
+        // Non-fatal: don't block init on a face-job probe failure.
       }
       return { roots: rootList, scans, setupStatus, readOnly: health.readOnly };
     } catch (err) {

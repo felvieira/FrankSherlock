@@ -7,11 +7,11 @@ use rusqlite_migration::{HookError, Migrations, M};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
-    FileProperties, FileRecordUpsert, GpsFile, HealthCheckOutcome, NearbyResult, ParsedQuery,
-    PdfPassword, ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, SavedSearchAlert,
-    ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField,
-    SortOrder, SubdirEntry, TagRule,
+    Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FaceScanJob,
+    FileMetadata, FileProperties, FileRecordUpsert, GpsFile, HealthCheckOutcome, NearbyResult,
+    ParsedQuery, PdfPassword, ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch,
+    SavedSearchAlert, ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse,
+    SmartFolder, SortField, SortOrder, SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
 
@@ -402,6 +402,26 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
             ALTER TABLE files ADD COLUMN gps_lon REAL;
             CREATE INDEX IF NOT EXISTS idx_files_gps ON files(gps_lat, gps_lon)
             WHERE gps_lat IS NOT NULL;
+            "#,
+        ),
+        // Migration 23: AI-suggested event name column
+        M::up(
+            r#"
+            ALTER TABLE events ADD COLUMN suggested_name TEXT;
+            "#,
+        ),
+        // Migration 24: resumable face-scan job checkpoint
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS face_scan_jobs (
+                root_id         INTEGER PRIMARY KEY,
+                processed       INTEGER NOT NULL DEFAULT 0,
+                total           INTEGER NOT NULL DEFAULT 0,
+                faces_found     INTEGER NOT NULL DEFAULT 0,
+                cursor_rel_path TEXT,
+                started_at      INTEGER NOT NULL DEFAULT 0,
+                updated_at      INTEGER NOT NULL DEFAULT 0
+            );
             "#,
         ),
     ]);
@@ -1856,6 +1876,20 @@ fn search_images_normalized(
         bind_values.push(Value::Integer(b));
     }
 
+    if let Some(eid) = parsed.event_id {
+        where_clauses
+            .push("f.id IN (SELECT file_id FROM event_files WHERE event_id = ?)".to_string());
+        bind_values.push(Value::Integer(eid));
+    }
+    if let Some(tid) = parsed.trip_id {
+        where_clauses.push(
+            "f.id IN (SELECT ef.file_id FROM event_files ef \
+             JOIN events e ON e.id = ef.event_id WHERE e.trip_id = ?)"
+                .to_string(),
+        );
+        bind_values.push(Value::Integer(tid));
+    }
+
     let media_types = normalize_media_types(&request.media_types);
     if !media_types.is_empty() {
         let placeholders = vec!["?"; media_types.len()].join(", ");
@@ -2044,6 +2078,20 @@ fn search_like_fallback(
         bind_values.push(Value::Integer(b));
     }
 
+    if let Some(eid) = parsed.event_id {
+        where_clauses
+            .push("f.id IN (SELECT file_id FROM event_files WHERE event_id = ?)".to_string());
+        bind_values.push(Value::Integer(eid));
+    }
+    if let Some(tid) = parsed.trip_id {
+        where_clauses.push(
+            "f.id IN (SELECT ef.file_id FROM event_files ef \
+             JOIN events e ON e.id = ef.event_id WHERE e.trip_id = ?)"
+                .to_string(),
+        );
+        bind_values.push(Value::Integer(tid));
+    }
+
     let media_types = normalize_media_types(&request.media_types);
     if !media_types.is_empty() {
         let placeholders = vec!["?"; media_types.len()].join(", ");
@@ -2136,6 +2184,10 @@ fn build_order_clause(has_query: bool, sort_by: &SortField, sort_order: &SortOrd
             format!("f.mtime_ns {dir}")
         }
         SortField::DateModified => format!("f.mtime_ns {dir}"),
+        // With Task 1 in place, EXIF date_taken is applied to OS mtime during scan,
+        // so sorting by "date taken" uses f.mtime_ns. Kept as its own variant for
+        // future schema evolution (dedicated date_taken column).
+        SortField::DateTaken => format!("f.mtime_ns {dir}"),
         SortField::Name => format!("f.filename {dir}"),
         SortField::Type => format!("f.media_type {dir}"),
     };
@@ -2980,14 +3032,17 @@ pub fn list_files_needing_face_scan(
            AND f.face_count = 0
            AND f.root_id = ?1
            AND (
-             f.media_type IN ('photo', 'screenshot', 'meme', 'anime', 'illustration')
-             OR LOWER(f.rel_path) LIKE '%.jpg'
-             OR LOWER(f.rel_path) LIKE '%.jpeg'
-             OR LOWER(f.rel_path) LIKE '%.png'
-             OR LOWER(f.rel_path) LIKE '%.webp'
-             OR LOWER(f.rel_path) LIKE '%.bmp'
-             OR LOWER(f.rel_path) LIKE '%.tiff'
-             OR LOWER(f.rel_path) LIKE '%.tif'
+             f.media_type IN ('photo', 'screenshot')
+             OR (
+               f.media_type IS NULL
+               AND (LOWER(f.rel_path) LIKE '%.jpg'
+                    OR LOWER(f.rel_path) LIKE '%.jpeg'
+                    OR LOWER(f.rel_path) LIKE '%.png'
+                    OR LOWER(f.rel_path) LIKE '%.webp'
+                    OR LOWER(f.rel_path) LIKE '%.bmp'
+                    OR LOWER(f.rel_path) LIKE '%.tiff'
+                    OR LOWER(f.rel_path) LIKE '%.tif')
+             )
            )
          ORDER BY f.rel_path";
 
@@ -3489,8 +3544,8 @@ pub fn cluster_faces(db_path: &Path, threshold: f32) -> AppResult<crate::models:
     let conn = open_conn(db_path)?;
     let now = now_epoch_secs();
 
-    const MIN_CONFIDENCE: f32 = 0.65;
-    const MIN_BBOX_DIM: f32 = 40.0;
+    const MIN_CONFIDENCE: f32 = 0.75;
+    const MIN_BBOX_DIM: f32 = 80.0;
 
     // ── Single load: all qualifying face embeddings ──
     // Load once, reference throughout assignment, merge, and outlier phases.
@@ -3644,7 +3699,7 @@ pub fn cluster_faces(db_path: &Path, threshold: f32) -> AppResult<crate::models:
     drop(update_stmt);
 
     // ── Merge pass: count-gated linkage ──
-    let merge_threshold = threshold * 0.85;
+    let merge_threshold = threshold + 0.03;
 
     // Build per-person embedding lists from in-memory data (no re-query)
     struct PersonEmbeddings {
@@ -4438,6 +4493,75 @@ pub fn remap_root(
         files_updated,
         scan_jobs_updated,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Resumable face-scan checkpointing
+// ---------------------------------------------------------------------------
+
+pub fn face_scan_job_start(db_path: &Path, root_id: i64, total: u64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO face_scan_jobs(root_id, processed, total, faces_found, cursor_rel_path, started_at, updated_at)
+         VALUES (?1, 0, ?2, 0, NULL, ?3, ?3)
+         ON CONFLICT(root_id) DO UPDATE SET
+             total = excluded.total,
+             updated_at = excluded.updated_at",
+        params![root_id, total as i64, now],
+    )?;
+    Ok(())
+}
+
+pub fn face_scan_job_tick(
+    db_path: &Path,
+    root_id: i64,
+    processed: u64,
+    faces_found: u64,
+    cursor_rel_path: Option<&str>,
+) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE face_scan_jobs
+         SET processed = ?2, faces_found = ?3, cursor_rel_path = ?4, updated_at = ?5
+         WHERE root_id = ?1",
+        params![root_id, processed as i64, faces_found as i64, cursor_rel_path, now],
+    )?;
+    Ok(())
+}
+
+pub fn face_scan_job_clear(db_path: &Path, root_id: i64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "DELETE FROM face_scan_jobs WHERE root_id = ?1",
+        params![root_id],
+    )?;
+    Ok(())
+}
+
+pub fn face_scan_job_list(db_path: &Path) -> AppResult<Vec<FaceScanJob>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT root_id, processed, total, faces_found, cursor_rel_path, started_at, updated_at
+         FROM face_scan_jobs ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(FaceScanJob {
+            root_id: r.get(0)?,
+            processed: r.get::<_, i64>(1)? as u64,
+            total: r.get::<_, i64>(2)? as u64,
+            faces_found: r.get::<_, i64>(3)? as u64,
+            cursor_rel_path: r.get(4)?,
+            started_at: r.get(5)?,
+            updated_at: r.get(6)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -5298,11 +5422,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (23 migrations applied → version 23)
+        // Verify user_version is set (25 migrations applied → version 25)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 23);
+        assert_eq!(version, 25);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -5346,8 +5470,47 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 23 migrations (indices 0..22), so user_version should be 23
-        assert_eq!(version, 23);
+        // We have 25 migrations (indices 0..24), so user_version should be 25
+        assert_eq!(version, 25);
+    }
+
+    #[test]
+    fn face_scan_job_roundtrip() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root_id = upsert_root(&db_path, "/tmp/facescan").expect("root");
+
+        // Initially empty
+        let jobs = face_scan_job_list(&db_path).expect("list empty");
+        assert!(jobs.is_empty());
+
+        // Start
+        face_scan_job_start(&db_path, root_id, 100).expect("start");
+        let jobs = face_scan_job_list(&db_path).expect("list after start");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].root_id, root_id);
+        assert_eq!(jobs[0].total, 100);
+        assert_eq!(jobs[0].processed, 0);
+        assert_eq!(jobs[0].faces_found, 0);
+        assert!(jobs[0].cursor_rel_path.is_none());
+
+        // Tick
+        face_scan_job_tick(&db_path, root_id, 42, 7, Some("some/path.jpg")).expect("tick");
+        let jobs = face_scan_job_list(&db_path).expect("list after tick");
+        assert_eq!(jobs[0].processed, 42);
+        assert_eq!(jobs[0].faces_found, 7);
+        assert_eq!(jobs[0].cursor_rel_path.as_deref(), Some("some/path.jpg"));
+
+        // Restart (upsert) preserves row but updates total
+        face_scan_job_start(&db_path, root_id, 200).expect("restart");
+        let jobs = face_scan_job_list(&db_path).expect("list after restart");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].total, 200);
+
+        // Clear
+        face_scan_job_clear(&db_path, root_id).expect("clear");
+        let jobs = face_scan_job_list(&db_path).expect("list after clear");
+        assert!(jobs.is_empty());
     }
 
     #[test]
@@ -6521,7 +6684,7 @@ mod tests {
 
     fn insert_test_face(db_path: &std::path::Path, file_id: i64, embedding: &[f32]) -> i64 {
         let face = crate::face::FaceDetection {
-            bbox: [10.0, 10.0, 50.0, 50.0],
+            bbox: [10.0, 10.0, 100.0, 100.0],
             confidence: 0.9,
             keypoints: [[0.0; 2]; 5],
             embedding: embedding.to_vec(),

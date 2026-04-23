@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Album,
   Burst,
+  BurstWithBest,
   ClusterResult,
   DbStats,
   DedupStrategy,
@@ -10,6 +11,7 @@ import type {
   EventSummary,
   FaceDetectProgress,
   FaceInfo,
+  FaceScanJob,
   FileMetadata,
   FileProperties,
   FilterOption,
@@ -29,6 +31,12 @@ import type {
   SmartFolder,
   SubdirEntry,
   Suggestion,
+  SuggestedName,
+  OrganizePlan,
+  OrganizeRequest,
+  OrganizeResult,
+  RenameRequest,
+  RenameResult,
   SearchRequest,
   SearchResponse,
   SavedSearch,
@@ -67,6 +75,10 @@ export async function getScanJob(jobId: number): Promise<ScanJobStatus | null> {
 
 export async function listActiveScans(): Promise<ScanJobStatus[]> {
   return invoke<ScanJobStatus[]>("list_active_scans");
+}
+
+export async function listFaceScanJobs(): Promise<FaceScanJob[]> {
+  return invoke<FaceScanJob[]>("list_face_scan_jobs_cmd");
 }
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {
@@ -378,6 +390,26 @@ export async function listTrips(): Promise<TripSummary[]> {
 
 export async function findBursts(): Promise<Burst[]> {
   return invoke<Burst[]>("find_bursts_cmd");
+}
+
+export async function findBurstsWithBest(): Promise<BurstWithBest[]> {
+  return invoke<BurstWithBest[]>("find_bursts_with_best_cmd");
+}
+
+export async function suggestEventNames(): Promise<SuggestedName[]> {
+  return invoke<SuggestedName[]>("suggest_event_names_cmd");
+}
+
+export async function buildOrganizePlan(baseDir: string): Promise<OrganizePlan> {
+  return invoke<OrganizePlan>("build_organize_plan_cmd", { baseDir });
+}
+
+export async function executeOrganizePlan(req: OrganizeRequest): Promise<OrganizeResult> {
+  return invoke<OrganizeResult>("execute_organize_plan_cmd", { req });
+}
+
+export async function renameByTemplate(req: RenameRequest): Promise<RenameResult> {
+  return invoke<RenameResult>("rename_by_template_cmd", { req });
 }
 
 export async function generateYearReview(year: number): Promise<number> {

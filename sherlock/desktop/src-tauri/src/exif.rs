@@ -14,6 +14,30 @@ pub struct ExifScanData {
     pub time_of_day: String,
 }
 
+/// Read EXIF DateTimeOriginal from a file, parsed as UTC.
+pub fn extract_date_taken_utc(path: &Path) -> Option<chrono::DateTime<chrono::Utc>> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut buf = std::io::BufReader::new(file);
+    let exif = exif::Reader::new().read_from_container(&mut buf).ok()?;
+    let field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
+    let s = field.display_value().to_string();
+    parse_exif_datetime(&s)
+}
+
+/// Apply a DateTime to a file's OS modification time.
+pub fn apply_exif_mtime(path: &Path, dt: chrono::DateTime<chrono::Utc>) -> std::io::Result<()> {
+    let ts = filetime::FileTime::from_unix_time(dt.timestamp(), 0);
+    filetime::set_file_mtime(path, ts)
+}
+
+/// Parse an EXIF DateTimeOriginal string ("YYYY:MM:DD HH:MM:SS") as UTC.
+pub fn parse_exif_datetime(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    use chrono::TimeZone;
+    let trimmed = s.trim().trim_matches('"');
+    let naive = chrono::NaiveDateTime::parse_from_str(trimmed, "%Y:%m:%d %H:%M:%S").ok()?;
+    Some(chrono::Utc.from_utc_datetime(&naive))
+}
+
 /// Classify an hour (0–23) to a named time-of-day bucket.
 pub fn classify_time_of_day(hour: u32) -> String {
     match hour {
@@ -433,5 +457,31 @@ mod tests {
         let data = extract_scan_exif(tmp.path());
         assert!(data.camera_model.is_empty());
         assert!(data.iso.is_none());
+    }
+
+    #[test]
+    fn apply_exif_mtime_updates_os_mtime() {
+        use std::fs;
+        use std::time::UNIX_EPOCH;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("x.jpg");
+        fs::write(&p, b"hello").unwrap();
+        // 2020-01-15T12:00:00Z = 1579089600
+        let target = chrono::DateTime::<chrono::Utc>::from_timestamp(1579089600, 0).unwrap();
+        apply_exif_mtime(&p, target).unwrap();
+        let meta = fs::metadata(&p).unwrap();
+        let got = meta.modified().unwrap().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        assert_eq!(got, 1579089600);
+    }
+
+    #[test]
+    fn parse_exif_datetime_valid() {
+        let dt = parse_exif_datetime("2020:01:15 12:00:00").expect("parse");
+        assert_eq!(dt.timestamp(), 1579089600);
+    }
+
+    #[test]
+    fn parse_exif_datetime_invalid() {
+        assert!(parse_exif_datetime("not a date").is_none());
     }
 }

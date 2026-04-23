@@ -19,6 +19,7 @@ type Props = {
   onProperties: () => void;
   onFindSimilar: () => void;
   onFindNearby: () => void;
+  onBatchRename?: () => void;
   onDelete: () => void;
   onAddToAlbum: (albumId: number) => void;
   onCreateAlbumFromSelection: () => void;
@@ -29,7 +30,7 @@ export default function ContextMenu({
   x, y, selectedCount, albums, description, extractedText, confidence,
   hasGps,
   onCopyPath, onCopyDescription, onCopyOcrText, onRename, onEditMetadata, onProperties,
-  onFindSimilar, onFindNearby, onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
+  onFindSimilar, onFindNearby, onBatchRename, onDelete, onAddToAlbum, onCreateAlbumFromSelection, onClose,
 }: Props) {
   const isUnclassified = confidence !== null && confidence === 0;
   const menuRef = useRef<HTMLDivElement>(null);
@@ -127,6 +128,12 @@ export default function ContextMenu({
       {selectedCount === 1 && hasGps && (
         <button className="context-menu-item" role="menuitem" onClick={onFindNearby}>
           <span>Find nearby</span>
+        </button>
+      )}
+
+      {selectedCount > 1 && onBatchRename && (
+        <button className="context-menu-item" role="menuitem" onClick={onBatchRename}>
+          <span>Batch rename…</span>
         </button>
       )}
 

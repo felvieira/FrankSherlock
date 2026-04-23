@@ -1,0 +1,40 @@
+.organize-wizard {
+  max-width: 720px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.organize-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+.organize-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+}
+.organize-row.skipped {
+  opacity: 0.5;
+}
+.organize-row input[type="text"] {
+  flex: 1;
+  padding: 4px 8px;
+}
+.organize-count {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.organize-note {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+.organize-error {
+  color: var(--danger);
+  margin-top: 12px;
+}
