@@ -8,9 +8,10 @@ use rusqlite_migration::{HookError, Migrations, M};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
-    FileProperties, FileRecordUpsert, HealthCheckOutcome, ParsedQuery, PdfPassword,
-    ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, ScanJobState, ScanJobStatus, SearchItem,
-    SearchRequest, SearchResponse, SmartFolder, SortField, SortOrder, SubdirEntry, TagRule,
+    FileProperties, FileRecordUpsert, GpsFile, HealthCheckOutcome, NearbyResult, ParsedQuery,
+    PdfPassword, ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, SavedSearchAlert,
+    ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField,
+    SortOrder, SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
 
@@ -392,6 +393,15 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
         M::up(
             r#"
             ALTER TABLE albums ADD COLUMN tag TEXT NOT NULL DEFAULT '';
+            "#,
+        ),
+        // Migration 22: GPS lat/lon stored for map view
+        M::up(
+            r#"
+            ALTER TABLE files ADD COLUMN gps_lat REAL;
+            ALTER TABLE files ADD COLUMN gps_lon REAL;
+            CREATE INDEX IF NOT EXISTS idx_files_gps ON files(gps_lat, gps_lon)
+            WHERE gps_lat IS NOT NULL;
             "#,
         ),
     ]);
@@ -960,7 +970,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             scan_marker, updated_at, deleted_at, location_text, dhash,
             duration_secs, video_width, video_height, video_codec, audio_codec,
             camera_model, lens_model, iso, shutter_speed, aperture, time_of_day,
-            blur_score, dominant_color, qr_codes
+            blur_score, dominant_color, qr_codes, gps_lat, gps_lon
         ) VALUES (
             ?1, ?2, ?3, ?4,
             ?5, ?6, ?7, ?8,
@@ -968,7 +978,7 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             ?14, ?15, NULL, ?16, ?17,
             ?18, ?19, ?20, ?21, ?22,
             ?23, ?24, ?25, ?26, ?27, ?28,
-            ?29, ?30, ?31
+            ?29, ?30, ?31, ?32, ?33
         )
         ON CONFLICT(root_id, rel_path) DO UPDATE SET
             filename = excluded.filename,
@@ -1000,7 +1010,9 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             time_of_day = CASE WHEN excluded.time_of_day != '' THEN excluded.time_of_day ELSE files.time_of_day END,
             blur_score = COALESCE(excluded.blur_score, files.blur_score),
             dominant_color = COALESCE(excluded.dominant_color, files.dominant_color),
-            qr_codes = CASE WHEN excluded.qr_codes != '' THEN excluded.qr_codes ELSE files.qr_codes END
+            qr_codes = CASE WHEN excluded.qr_codes != '' THEN excluded.qr_codes ELSE files.qr_codes END,
+            gps_lat = COALESCE(excluded.gps_lat, files.gps_lat),
+            gps_lon = COALESCE(excluded.gps_lon, files.gps_lon)
         "#,
         params![
             record.root_id,
@@ -1034,6 +1046,8 @@ pub fn upsert_file_record(db_path: &Path, record: &FileRecordUpsert) -> AppResul
             record.blur_score,
             record.dominant_color,
             record.qr_codes,
+            record.gps_lat,
+            record.gps_lon,
         ],
     )?;
 
@@ -2656,6 +2670,154 @@ pub fn set_saved_search_notify(
         params![notify as i64, search_id],
     )?;
     Ok(())
+}
+
+/// For each saved search with notify=1, check if there are new file matches
+/// (id > last_match_id) since the last check. Returns alerts for searches
+/// that have new results. Updates last_match_id and last_checked_at.
+pub fn check_saved_search_alerts(db_path: &Path) -> AppResult<Vec<SavedSearchAlert>> {
+    let conn = open_conn(db_path)?;
+    let now = now_epoch_secs();
+
+    // Load all notify=1 searches
+    let searches: Vec<(i64, String, String, i64)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, name, query, last_match_id FROM saved_searches
+             WHERE notify = 1 AND query != ''",
+        )?;
+        let x: Vec<_> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .filter_map(Result::ok)
+            .collect();
+        x
+    };
+
+    let mut alerts = Vec::new();
+    for (id, name, query, last_match_id) in searches {
+        // Convert to FTS5 query format (adds prefix wildcards etc.)
+        let fts_query = to_fts_query(query.trim());
+        if fts_query.is_empty() {
+            continue;
+        }
+        let result: Option<(i64, i64)> = conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(MAX(f.id), 0) FROM files f
+                 JOIN files_fts ON files_fts.rowid = f.id
+                 WHERE files_fts MATCH ?1 AND f.deleted_at IS NULL AND f.id > ?2",
+                params![fts_query, last_match_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+
+        if let Some((new_count, max_new_id)) = result {
+            if new_count > 0 {
+                alerts.push(SavedSearchAlert {
+                    id,
+                    name: name.clone(),
+                    query: query.clone(),
+                    new_count,
+                    max_new_id,
+                });
+                // Update last_match_id and last_checked_at
+                conn.execute(
+                    "UPDATE saved_searches SET last_match_id = ?1, last_checked_at = ?2 WHERE id = ?3",
+                    params![max_new_id, now, id],
+                )?;
+            } else {
+                // Still update last_checked_at even when no new results
+                conn.execute(
+                    "UPDATE saved_searches SET last_checked_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
+        }
+    }
+    Ok(alerts)
+}
+
+/// Returns all non-deleted files that have GPS coordinates.
+/// `root_id` filters to a specific root when Some.
+pub fn list_gps_files(db_path: &Path, root_id: Option<i64>) -> AppResult<Vec<GpsFile>> {
+    let conn = open_conn(db_path)?;
+    let (sql, has_root) = match root_id {
+        Some(_) => (
+            "SELECT id, gps_lat, gps_lon, thumb_path, filename, media_type
+             FROM files WHERE deleted_at IS NULL
+             AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL
+             AND root_id = ?1",
+            true,
+        ),
+        None => (
+            "SELECT id, gps_lat, gps_lon, thumb_path, filename, media_type
+             FROM files WHERE deleted_at IS NULL
+             AND gps_lat IS NOT NULL AND gps_lon IS NOT NULL",
+            false,
+        ),
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let row_to_gps = |r: &rusqlite::Row<'_>| {
+        Ok(GpsFile {
+            id: r.get(0)?,
+            lat: r.get(1)?,
+            lon: r.get(2)?,
+            thumb_path: r.get(3)?,
+            filename: r.get(4)?,
+            media_type: r.get(5)?,
+        })
+    };
+    let rows = if has_root {
+        stmt.query_map(params![root_id.unwrap()], row_to_gps)?
+            .filter_map(Result::ok)
+            .collect()
+    } else {
+        stmt.query_map([], row_to_gps)?
+            .filter_map(Result::ok)
+            .collect()
+    };
+    Ok(rows)
+}
+
+/// Returns up to `limit` files sorted by approximate distance (degrees, not km)
+/// from the given (lat, lon). Uses a bounding box pre-filter for efficiency.
+pub fn find_nearby(db_path: &Path, lat: f64, lon: f64, limit: i64) -> AppResult<Vec<NearbyResult>> {
+    let conn = open_conn(db_path)?;
+    // ~1 degree ≈ 111 km. Pre-filter to ±10 degrees (≈1100 km) then sort by Euclidean dist.
+    let delta = 10.0f64;
+    let mut stmt = conn.prepare(
+        "SELECT id, filename, rel_path, abs_path, media_type,
+                COALESCE(description, '') as description,
+                COALESCE(confidence, 0.0) as confidence,
+                gps_lat, gps_lon, thumb_path,
+                ((gps_lat - ?1) * (gps_lat - ?1) + (gps_lon - ?2) * (gps_lon - ?2)) AS dist_sq
+         FROM files
+         WHERE deleted_at IS NULL
+           AND gps_lat BETWEEN ?3 AND ?4
+           AND gps_lon BETWEEN ?5 AND ?6
+         ORDER BY dist_sq ASC
+         LIMIT ?7",
+    )?;
+    let rows: Vec<NearbyResult> = stmt
+        .query_map(
+            params![lat, lon, lat - delta, lat + delta, lon - delta, lon + delta, limit],
+            |r| {
+                let dist_sq: f64 = r.get(10)?;
+                Ok(NearbyResult {
+                    id: r.get(0)?,
+                    filename: r.get(1)?,
+                    rel_path: r.get(2)?,
+                    abs_path: r.get(3)?,
+                    media_type: r.get(4)?,
+                    description: r.get(5)?,
+                    confidence: r.get(6)?,
+                    lat: r.get(7)?,
+                    lon: r.get(8)?,
+                    thumb_path: r.get(9)?,
+                    dist_deg: dist_sq.sqrt(),
+                })
+            },
+        )?
+        .filter_map(Result::ok)
+        .collect();
+    Ok(rows)
 }
 
 // ── PDF Passwords ───────────────────────────────────────────────────
@@ -4323,6 +4485,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         }
     }
 
@@ -4373,6 +4537,8 @@ mod tests {
                 blur_score: None,
                 dominant_color: None,
                 qr_codes: String::new(),
+                gps_lat: None,
+                gps_lon: None,
             };
             upsert_file_record(&db_path, &rec).expect("upsert");
         }
@@ -4431,6 +4597,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4482,6 +4650,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -4536,6 +4706,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         touch_file_scan_marker(&db_path, root_id, "a.jpg", 2).expect("touch");
@@ -4589,6 +4761,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         let files = load_existing_files(&db_path, root_id).expect("load");
@@ -4633,6 +4807,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
         mark_missing_as_deleted(&db_path, root_id, 99).expect("delete");
@@ -5054,6 +5230,8 @@ mod tests {
                 blur_score: None,
                 dominant_color: None,
                 qr_codes: String::new(),
+                gps_lat: None,
+                gps_lon: None,
             };
             upsert_file_record(db_path, &rec).expect("upsert");
         }
@@ -5120,11 +5298,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (22 migrations applied → version 22)
+        // Verify user_version is set (23 migrations applied → version 23)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 22);
+        assert_eq!(version, 23);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -5168,8 +5346,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 22 migrations (indices 0..21), so user_version should be 22
-        assert_eq!(version, 22);
+        // We have 23 migrations (indices 0..22), so user_version should be 23
+        assert_eq!(version, 23);
     }
 
     #[test]
@@ -6125,6 +6303,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec).expect("upsert");
 
@@ -6160,6 +6340,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         upsert_file_record(&db_path, &rec2).expect("upsert");
 
@@ -7817,5 +7999,133 @@ mod tests {
         let folders = list_smart_folders(&db_path).expect("list");
         assert_eq!(folders.len(), 1);
         assert_eq!(folders[0].id, sf.id);
+    }
+
+    // -----------------------------------------------------------------------
+    // list_gps_files / find_nearby tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn list_gps_files_returns_only_gps_tagged_files() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        // File with GPS
+        let mut rec_gps = sample_record(root, "gps.jpg", "fpg");
+        rec_gps.gps_lat = Some(48.8566);
+        rec_gps.gps_lon = Some(2.3522);
+        upsert_file_record(&db_path, &rec_gps).expect("upsert gps");
+
+        // File without GPS
+        let rec_no = sample_record(root, "no_gps.jpg", "fpn");
+        upsert_file_record(&db_path, &rec_no).expect("upsert no-gps");
+
+        let result = list_gps_files(&db_path, None).expect("list");
+        assert_eq!(result.len(), 1);
+        assert!((result[0].lat - 48.8566).abs() < 0.001);
+        assert!((result[0].lon - 2.3522).abs() < 0.001);
+    }
+
+    #[test]
+    fn find_nearby_returns_closest_files() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        // 3 files: Paris, London, Tokyo
+        let places = [
+            ("paris.jpg", 48.8566f64, 2.3522f64, "fpp"),
+            ("london.jpg", 51.5074, -0.1278, "fpl"),
+            ("tokyo.jpg", 35.6762, 139.6503, "fpt"),
+        ];
+        for (name, lat, lon, fp) in places {
+            let mut rec = sample_record(root, name, fp);
+            rec.gps_lat = Some(lat);
+            rec.gps_lon = Some(lon);
+            upsert_file_record(&db_path, &rec).expect("upsert");
+        }
+
+        // Query near Paris (48.85, 2.35) — should return Paris first, then London, not Tokyo
+        let results = find_nearby(&db_path, 48.85, 2.35, 50).expect("find");
+        assert!(!results.is_empty(), "should have results");
+        assert_eq!(results[0].filename, "paris.jpg");
+        // Tokyo should not appear in top 2
+        if results.len() >= 2 {
+            assert_ne!(results[1].filename, "tokyo.jpg");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // GPS migration test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn migration_adds_gps_lat_lon_columns() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let conn = open_conn(&db_path).expect("conn");
+        let mut stmt = conn.prepare("PRAGMA table_info(files)").expect("pragma");
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))
+            .expect("query")
+            .filter_map(Result::ok)
+            .collect();
+        assert!(cols.iter().any(|c| c == "gps_lat"), "missing gps_lat, got {cols:?}");
+        assert!(cols.iter().any(|c| c == "gps_lon"), "missing gps_lon, got {cols:?}");
+    }
+
+    // -----------------------------------------------------------------------
+    // check_saved_search_alerts tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn check_saved_search_alerts_returns_matches() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        // Use upsert_file_record so FTS is populated correctly
+        for i in 0..2i64 {
+            let mut rec = sample_record(root, &format!("a{i}.jpg"), &format!("fpa{i}"));
+            rec.description = "beach sunset".to_string();
+            upsert_file_record(&db_path, &rec).expect("upsert");
+        }
+
+        // Create a saved search with notify=1, last_match_id=0
+        let conn = open_conn(&db_path).expect("conn");
+        conn.execute(
+            "INSERT INTO saved_searches (name, query, notify, last_match_id, last_checked_at)
+             VALUES ('beach alert', 'beach', 1, 0, 0)",
+            [],
+        ).expect("insert saved search");
+        drop(conn);
+
+        let alerts = check_saved_search_alerts(&db_path).expect("check");
+        assert_eq!(alerts.len(), 1, "should have one alert, got {alerts:?}");
+        assert_eq!(alerts[0].name, "beach alert");
+        assert!(alerts[0].new_count > 0);
+    }
+
+    #[test]
+    fn check_saved_search_alerts_skips_notify_false() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root = upsert_root(&db_path, "D:\\P").expect("root");
+
+        let mut rec = sample_record(root, "b.jpg", "fp9");
+        rec.description = "sunset".to_string();
+        upsert_file_record(&db_path, &rec).expect("upsert");
+
+        let conn = open_conn(&db_path).expect("conn");
+        conn.execute(
+            "INSERT INTO saved_searches (name, query, notify, last_match_id, last_checked_at)
+             VALUES ('sunset watch', 'sunset', 0, 0, 0)",
+            [],
+        ).expect("insert saved search");
+        drop(conn);
+
+        let alerts = check_saved_search_alerts(&db_path).expect("check");
+        assert!(alerts.is_empty());
     }
 }

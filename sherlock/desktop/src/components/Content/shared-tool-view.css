@@ -3,6 +3,8 @@
    Each view imports this file + its own CSS for component-specific styles. */
 
 .tool-view {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

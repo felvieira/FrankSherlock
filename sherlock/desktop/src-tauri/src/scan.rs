@@ -565,6 +565,8 @@ struct ThumbnailOnlyResult {
     shutter_speed: Option<f64>,
     aperture: Option<f64>,
     time_of_day: String,
+    gps_lat: Option<f64>,
+    gps_lon: Option<f64>,
 }
 
 fn is_pdf_file(path: &Path) -> bool {
@@ -634,6 +636,8 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         shutter_speed: exif_scan.shutter_speed,
         aperture: exif_scan.aperture,
         time_of_day: exif_scan.time_of_day,
+        gps_lat: exif_location.latitude,
+        gps_lon: exif_location.longitude,
     }
 }
 
@@ -704,6 +708,8 @@ fn probe_to_minimal_record(
         blur_score: thumb_result.blur_score,
         dominant_color: thumb_result.dominant_color,
         qr_codes: thumb_result.qr_codes.clone(),
+        gps_lat: thumb_result.gps_lat,
+        gps_lon: thumb_result.gps_lon,
     }
 }
 
@@ -1083,6 +1089,8 @@ mod tests {
             blur_score: None,
             dominant_color: None,
             qr_codes: String::new(),
+            gps_lat: None,
+            gps_lon: None,
         };
         db::upsert_file_record(&db_path, &rec).expect("upsert");
 

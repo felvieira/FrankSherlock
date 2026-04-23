@@ -725,6 +725,31 @@ fn set_saved_search_notify(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn check_saved_search_alerts_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<models::SavedSearchAlert>, String> {
+    db::check_saved_search_alerts(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_gps_files_cmd(
+    state: State<'_, AppState>,
+    root_id: Option<i64>,
+) -> Result<Vec<models::GpsFile>, String> {
+    db::list_gps_files(&state.paths.db_file, root_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn find_nearby_cmd(
+    state: State<'_, AppState>,
+    lat: f64,
+    lon: f64,
+    limit: i64,
+) -> Result<Vec<models::NearbyResult>, String> {
+    db::find_nearby(&state.paths.db_file, lat, lon, limit).map_err(|e| e.to_string())
+}
+
 // ── Reorder commands ────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1883,6 +1908,9 @@ pub fn run() {
             create_saved_search,
             delete_saved_search,
             set_saved_search_notify,
+            check_saved_search_alerts_cmd,
+            list_gps_files_cmd,
+            find_nearby_cmd,
             reorder_roots,
             reorder_albums,
             reorder_smart_folders,

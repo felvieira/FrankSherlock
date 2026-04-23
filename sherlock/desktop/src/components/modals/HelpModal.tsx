@@ -103,6 +103,33 @@ export default function HelpModal({ onClose }: Props) {
         </div>
 
         <div className="help-section">
+          <h4>Color filter</h4>
+          <div className="help-examples">
+            <code>color:#e53935</code>
+            <code>color:#1e88e5 beach</code>
+          </div>
+          <p className="help-note-inline">Click a color swatch in the toolbar to add this token automatically.</p>
+        </div>
+
+        <div className="help-section">
+          <h4>Shot type</h4>
+          <div className="help-examples">
+            <code>shot:portrait</code>
+            <code>shot:landscape</code>
+            <code>shot:macro</code>
+          </div>
+        </div>
+
+        <div className="help-section">
+          <h4>Blur / focus</h4>
+          <div className="help-examples">
+            <code>blur:low</code>
+            <code>blur:high</code>
+          </div>
+          <p className="help-note-inline">low = sharp, high = blurry</p>
+        </div>
+
+        <div className="help-section">
           <h4>Combined</h4>
           <div className="help-examples">
             <code>anime between 2023 and 2024</code>

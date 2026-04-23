@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Toolbar from "../../components/Content/Toolbar";
 
@@ -145,5 +145,67 @@ describe("Toolbar", () => {
     // sharp → blurry: replaces blur:false with blur:true
     await user.click(btn);
     expect(onChange).toHaveBeenLastCalledWith("blur:true");
+  });
+
+  it("renders color swatch row", () => {
+    render(
+      <Toolbar
+        query=""
+        onQueryChange={() => {}}
+        selectedMediaType=""
+        onMediaTypeChange={() => {}}
+        mediaTypeOptions={[""]}
+        sortBy="dateModified"
+        onSortByChange={() => {}}
+        sortOrder="desc"
+        onSortOrderChange={() => {}}
+        hasTextQuery={false}
+      />
+    );
+    expect(document.querySelectorAll(".toolbar-color-swatch").length).toBeGreaterThan(0);
+  });
+
+  it("clicking a color swatch appends color: token", () => {
+    const onChange = vi.fn();
+    render(
+      <Toolbar
+        query="beach"
+        onQueryChange={onChange}
+        selectedMediaType=""
+        onMediaTypeChange={() => {}}
+        mediaTypeOptions={[""]}
+        sortBy="dateModified"
+        onSortByChange={() => {}}
+        sortOrder="desc"
+        onSortOrderChange={() => {}}
+        hasTextQuery={true}
+      />
+    );
+    const swatch = document.querySelector(".toolbar-color-swatch") as HTMLElement;
+    fireEvent.click(swatch);
+    expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/color:#[0-9a-fA-F]{6}/));
+  });
+
+  it("clicking active swatch removes color: token", () => {
+    const onChange = vi.fn();
+    render(
+      <Toolbar
+        query="color:#e53935"
+        onQueryChange={onChange}
+        selectedMediaType=""
+        onMediaTypeChange={() => {}}
+        mediaTypeOptions={[""]}
+        sortBy="dateModified"
+        onSortByChange={() => {}}
+        sortOrder="desc"
+        onSortOrderChange={() => {}}
+        hasTextQuery={true}
+      />
+    );
+    // Find the active swatch (the red one) and click it
+    const activeSwatch = document.querySelector(".toolbar-color-swatch.active") as HTMLElement;
+    expect(activeSwatch).not.toBeNull();
+    fireEvent.click(activeSwatch);
+    expect(onChange).toHaveBeenCalledWith(expect.not.stringContaining("color:"));
   });
 });

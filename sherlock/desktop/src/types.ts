@@ -236,6 +236,37 @@ export type SavedSearch = {
   lastCheckedAt: number;
 };
 
+export type SavedSearchAlert = {
+  id: number;
+  name: string;
+  query: string;
+  newCount: number;
+  maxNewId: number;
+};
+
+export type GpsFile = {
+  id: number;
+  lat: number;
+  lon: number;
+  thumbPath: string | null;
+  filename: string;
+  mediaType: string;
+};
+
+export type NearbyResult = {
+  id: number;
+  filename: string;
+  relPath: string;
+  absPath: string;
+  mediaType: string;
+  description: string;
+  confidence: number;
+  lat: number;
+  lon: number;
+  thumbPath: string | null;
+  distDeg: number;
+};
+
 export type PdfPassword = {
   id: number;
   password: string;

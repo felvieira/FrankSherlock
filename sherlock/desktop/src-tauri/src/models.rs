@@ -184,6 +184,43 @@ pub struct SavedSearch {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SavedSearchAlert {
+    pub id: i64,
+    pub name: String,
+    pub query: String,
+    pub new_count: i64,
+    pub max_new_id: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpsFile {
+    pub id: i64,
+    pub lat: f64,
+    pub lon: f64,
+    pub thumb_path: Option<String>,
+    pub filename: String,
+    pub media_type: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NearbyResult {
+    pub id: i64,
+    pub filename: String,
+    pub rel_path: String,
+    pub abs_path: String,
+    pub media_type: String,
+    pub description: String,
+    pub confidence: f32,
+    pub lat: f64,
+    pub lon: f64,
+    pub thumb_path: Option<String>,
+    pub dist_deg: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanSummary {
     pub root_id: i64,
     pub root_path: String,
@@ -326,6 +363,8 @@ pub struct FileRecordUpsert {
     pub blur_score: Option<f64>,
     pub dominant_color: Option<i64>,
     pub qr_codes: String,
+    pub gps_lat: Option<f64>,
+    pub gps_lon: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
