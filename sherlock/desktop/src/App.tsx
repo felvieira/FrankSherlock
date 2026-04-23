@@ -39,6 +39,7 @@ import ScanSummaryModal from "./components/modals/ScanSummaryModal";
 import PreviewModal from "./components/modals/PreviewModal";
 import ConfirmDeleteModal from "./components/modals/ConfirmDeleteModal";
 import RemapRootModal from "./components/modals/RemapRootModal";
+import OrganizeWizard from "./components/modals/OrganizeWizard";
 import ExportCatalogModal from "./components/modals/ExportCatalogModal";
 import ImportCatalogModal from "./components/modals/ImportCatalogModal";
 import ConfirmFileDeleteModal from "./components/modals/ConfirmFileDeleteModal";
@@ -107,6 +108,7 @@ export default function App() {
   const [mapMode, setMapMode] = useState(false);
   const [eventsMode, setEventsMode] = useState(false);
   const [tripsMode, setTripsMode] = useState(false);
+  const [organizeOpen, setOrganizeOpen] = useState(false);
   const [contextMenuHasGps, setContextMenuHasGps] = useState(false);
 
   /* ── Directory tree: derived from query ── */
@@ -735,6 +737,7 @@ export default function App() {
         />
       )}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {organizeOpen && <OrganizeWizard onClose={() => setOrganizeOpen(false)} />}
       {showModelInfo && runtime && (
         <ModelInfoModal runtime={runtime} setup={setup} onClose={() => setShowModelInfo(false)} />
       )}
@@ -1052,6 +1055,7 @@ export default function App() {
               setQuery(`event:${id}`);
               setEventsMode(false);
             }}
+            onOrganize={() => setOrganizeOpen(true)}
           />
         ) : tripsMode ? (
           <TripsView

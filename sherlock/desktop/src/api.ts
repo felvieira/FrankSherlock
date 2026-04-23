@@ -30,6 +30,9 @@ import type {
   SubdirEntry,
   Suggestion,
   SuggestedName,
+  OrganizePlan,
+  OrganizeRequest,
+  OrganizeResult,
   SearchRequest,
   SearchResponse,
   SavedSearch,
@@ -383,6 +386,14 @@ export async function findBursts(): Promise<Burst[]> {
 
 export async function suggestEventNames(): Promise<SuggestedName[]> {
   return invoke<SuggestedName[]>("suggest_event_names_cmd");
+}
+
+export async function buildOrganizePlan(baseDir: string): Promise<OrganizePlan> {
+  return invoke<OrganizePlan>("build_organize_plan_cmd", { baseDir });
+}
+
+export async function executeOrganizePlan(req: OrganizeRequest): Promise<OrganizeResult> {
+  return invoke<OrganizeResult>("execute_organize_plan_cmd", { req });
 }
 
 export async function generateYearReview(year: number): Promise<number> {

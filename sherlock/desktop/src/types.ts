@@ -438,6 +438,31 @@ export type SuggestedName = {
   suggested: string;
 };
 
+export type OrganizeProposal = {
+  eventId: number;
+  folderName: string;
+  fileIds: number[];
+  filePaths: string[];
+};
+
+export type OrganizePlan = {
+  baseDir: string;
+  proposals: OrganizeProposal[];
+  unassignedCount: number;
+};
+
+export type OrganizeRequest = {
+  baseDir: string;
+  mode: "copy" | "move";
+  proposals: { folderName: string; fileIds: number[] }[];
+};
+
+export type OrganizeResult = {
+  processed: number;
+  skipped: number;
+  errors: string[];
+};
+
 /** Dedup policy strategy */
 export type DedupStrategy = "keepLargest" | "keepOldest" | "keepInAlbum";
 
