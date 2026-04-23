@@ -1862,6 +1862,20 @@ fn search_images_normalized(
         bind_values.push(Value::Integer(b));
     }
 
+    if let Some(eid) = parsed.event_id {
+        where_clauses
+            .push("f.id IN (SELECT file_id FROM event_files WHERE event_id = ?)".to_string());
+        bind_values.push(Value::Integer(eid));
+    }
+    if let Some(tid) = parsed.trip_id {
+        where_clauses.push(
+            "f.id IN (SELECT ef.file_id FROM event_files ef \
+             JOIN events e ON e.id = ef.event_id WHERE e.trip_id = ?)"
+                .to_string(),
+        );
+        bind_values.push(Value::Integer(tid));
+    }
+
     let media_types = normalize_media_types(&request.media_types);
     if !media_types.is_empty() {
         let placeholders = vec!["?"; media_types.len()].join(", ");
@@ -2048,6 +2062,20 @@ fn search_like_fallback(
         bind_values.push(Value::Integer(r));
         bind_values.push(Value::Integer(g));
         bind_values.push(Value::Integer(b));
+    }
+
+    if let Some(eid) = parsed.event_id {
+        where_clauses
+            .push("f.id IN (SELECT file_id FROM event_files WHERE event_id = ?)".to_string());
+        bind_values.push(Value::Integer(eid));
+    }
+    if let Some(tid) = parsed.trip_id {
+        where_clauses.push(
+            "f.id IN (SELECT ef.file_id FROM event_files ef \
+             JOIN events e ON e.id = ef.event_id WHERE e.trip_id = ?)"
+                .to_string(),
+        );
+        bind_values.push(Value::Integer(tid));
     }
 
     let media_types = normalize_media_types(&request.media_types);

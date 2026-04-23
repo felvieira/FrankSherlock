@@ -128,6 +128,34 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         working_query
     };
 
+    // Extract event:<id>
+    let mut event_id: Option<i64> = None;
+    let event_re = Regex::new(r#"(?i)\bevent:(\S+)"#).expect("valid regex");
+    let working_query = if let Some(cap) = event_re.captures(&working_query) {
+        if let Some(v) = cap.get(1).map(|m| m.as_str()) {
+            if let Ok(id) = v.parse::<i64>() {
+                event_id = Some(id);
+            }
+        }
+        event_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
+    // Extract trip:<id>
+    let mut trip_id: Option<i64> = None;
+    let trip_re = Regex::new(r#"(?i)\btrip:(\S+)"#).expect("valid regex");
+    let working_query = if let Some(cap) = trip_re.captures(&working_query) {
+        if let Some(v) = cap.get(1).map(|m| m.as_str()) {
+            if let Ok(id) = v.parse::<i64>() {
+                trip_id = Some(id);
+            }
+        }
+        trip_re.replace(&working_query, "").trim().to_string()
+    } else {
+        working_query
+    };
+
     // Extract color:name|#RRGGBB
     let mut color_hex: Option<u32> = None;
     let color_re = Regex::new(r#"(?i)\bcolor:(\S+)"#).expect("valid regex");
@@ -198,6 +226,12 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
     if color_hex.is_some() {
         score += 0.15;
     }
+    if event_id.is_some() {
+        score += 0.3;
+    }
+    if trip_id.is_some() {
+        score += 0.3;
+    }
 
     // Strip matched media keywords from query text, longest patterns first
     let mut query_text = working_query.clone();
@@ -227,6 +261,8 @@ pub fn parse_query(raw_query: &str) -> ParsedQuery {
         shot_kind,
         blur,
         color_hex,
+        event_id,
+        trip_id,
     }
 }
 

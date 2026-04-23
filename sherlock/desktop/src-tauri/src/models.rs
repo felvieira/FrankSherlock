@@ -118,6 +118,12 @@ pub struct ParsedQuery {
     /// Dominant-color filter: packed 0x00RRGGBB. None = no filter.
     #[serde(default)]
     pub color_hex: Option<u32>,
+    /// Filter by event membership via `event:<id>` token.
+    #[serde(default)]
+    pub event_id: Option<i64>,
+    /// Filter by trip membership via `trip:<id>` token (joins via events).
+    #[serde(default)]
+    pub trip_id: Option<i64>,
 }
 
 impl ParsedQuery {
@@ -140,6 +146,8 @@ impl ParsedQuery {
             shot_kind: None,
             blur: None,
             color_hex: None,
+            event_id: None,
+            trip_id: None,
         }
     }
 }
