@@ -30,6 +30,7 @@ import PdfPasswordsView from "./components/Content/PdfPasswordsView";
 import MapView from "./components/Content/MapView";
 import EventsView from "./components/Content/EventsView";
 import TripsView from "./components/Content/TripsView";
+import BurstReviewView from "./components/Content/BurstReviewView";
 import ContextMenu from "./components/Content/ContextMenu";
 import StatusBar from "./components/StatusBar/StatusBar";
 import ToastContainer from "./components/Toasts/ToastContainer";
@@ -108,6 +109,7 @@ export default function App() {
   const [mapMode, setMapMode] = useState(false);
   const [eventsMode, setEventsMode] = useState(false);
   const [tripsMode, setTripsMode] = useState(false);
+  const [burstsMode, setBurstsMode] = useState(false);
   const [organizeOpen, setOrganizeOpen] = useState(false);
   const [contextMenuHasGps, setContextMenuHasGps] = useState(false);
 
@@ -328,6 +330,7 @@ export default function App() {
     if (mapMode) return "Map";
     if (eventsMode) return "Events";
     if (tripsMode) return "Trips";
+    if (burstsMode) return "Bursts";
     if (activeAlbumName) return activeAlbumName;
     const sf = smartFolderManager.smartFolders.find(f => f.id === smartFolderManager.activeSmartFolderId);
     if (sf) return sf.name;
@@ -338,7 +341,7 @@ export default function App() {
       }
     }
     return null;
-  }, [faces.facesMode, duplicates.duplicatesMode, activeAlbumName, smartFolderManager.activeSmartFolderId, smartFolderManager.smartFolders, selectedRootId, roots, selectedSubdir, pdfPasswordsMode, mapMode, eventsMode, tripsMode]);
+  }, [faces.facesMode, duplicates.duplicatesMode, activeAlbumName, smartFolderManager.activeSmartFolderId, smartFolderManager.smartFolders, selectedRootId, roots, selectedSubdir, pdfPasswordsMode, mapMode, eventsMode, tripsMode, burstsMode]);
 
   /* ── Mode switching coordination ── */
   function enterDuplicatesMode(threshold?: number | null) {
@@ -347,6 +350,7 @@ export default function App() {
     setMapMode(false);
     setEventsMode(false);
     setTripsMode(false);
+    setBurstsMode(false);
     duplicates.onFindDuplicates(threshold);
   }
 
@@ -357,6 +361,7 @@ export default function App() {
     setMapMode(false);
     setEventsMode(false);
     setTripsMode(false);
+    setBurstsMode(false);
   }
 
   function enterPdfPasswordsMode() {
@@ -366,6 +371,7 @@ export default function App() {
     setMapMode(false);
     setEventsMode(false);
     setTripsMode(false);
+    setBurstsMode(false);
   }
 
   function enterMapMode() {
@@ -375,11 +381,13 @@ export default function App() {
     setPdfPasswordsMode(false);
     setEventsMode(false);
     setTripsMode(false);
+    setBurstsMode(false);
   }
 
   function enterEventsMode() {
     setEventsMode(true);
     setTripsMode(false);
+    setBurstsMode(false);
     setMapMode(false);
     duplicates.setDuplicatesMode(false);
     faces.setFacesMode(false);
@@ -389,6 +397,17 @@ export default function App() {
   function enterTripsMode() {
     setTripsMode(true);
     setEventsMode(false);
+    setBurstsMode(false);
+    setMapMode(false);
+    duplicates.setDuplicatesMode(false);
+    faces.setFacesMode(false);
+    setPdfPasswordsMode(false);
+  }
+
+  function enterBurstsMode() {
+    setBurstsMode(true);
+    setEventsMode(false);
+    setTripsMode(false);
     setMapMode(false);
     duplicates.setDuplicatesMode(false);
     faces.setFacesMode(false);
@@ -599,6 +618,7 @@ export default function App() {
     setMapMode(false);
     setEventsMode(false);
     setTripsMode(false);
+    setBurstsMode(false);
   }
 
   function handleAddToAlbum(albumId: number) {
@@ -627,6 +647,7 @@ export default function App() {
     setMapMode(false);
     setEventsMode(false);
     setTripsMode(false);
+    setBurstsMode(false);
   }
 
   function handleCreateSmartFolderConfirm(name: string) {
@@ -886,8 +907,9 @@ export default function App() {
             setPdfPasswordsMode(false);
             faces.setFacesMode(false);
             setMapMode(false);
-    setEventsMode(false);
-    setTripsMode(false);
+            setEventsMode(false);
+            setTripsMode(false);
+            setBurstsMode(false);
           }}
           onDeleteRoot={(root) => setConfirmDeleteRoot(root)}
           onRescanRoot={(root) => scanManager.onRescanRoot(root, setup, readOnly)}
@@ -929,6 +951,7 @@ export default function App() {
           onOpenMap={enterMapMode}
           onOpenEvents={enterEventsMode}
           onOpenTrips={enterTripsMode}
+          onOpenBursts={enterBurstsMode}
           onOpenPdfPasswords={enterPdfPasswordsMode}
           onOpenFaces={enterFacesMode}
           onExportCatalog={() => setShowExportCatalog(true)}
@@ -1026,8 +1049,9 @@ export default function App() {
             onBack={() => setMapMode(false)}
             onSelectFiles={(ids) => {
               setMapMode(false);
-    setEventsMode(false);
-    setTripsMode(false);
+              setEventsMode(false);
+              setTripsMode(false);
+              setBurstsMode(false);
               const newSel = new Set<number>();
               ids.forEach((id) => {
                 const idx = items.findIndex((it) => it.id === id);
@@ -1065,6 +1089,8 @@ export default function App() {
               setTripsMode(false);
             }}
           />
+        ) : burstsMode ? (
+          <BurstReviewView onBack={() => setBurstsMode(false)} />
         ) : duplicates.duplicatesMode && duplicates.duplicatesData ? (
           <DuplicatesView
             data={duplicates.duplicatesData}

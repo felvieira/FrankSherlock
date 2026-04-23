@@ -433,6 +433,12 @@ export type Burst = {
   memberIds: number[];
 };
 
+export type BurstWithBest = {
+  bestFileId: number;
+  memberIds: number[];
+  reason: string;
+};
+
 export type SuggestedName = {
   eventId: number;
   suggested: string;

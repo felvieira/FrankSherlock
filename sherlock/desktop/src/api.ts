@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Album,
   Burst,
+  BurstWithBest,
   ClusterResult,
   DbStats,
   DedupStrategy,
@@ -382,6 +383,10 @@ export async function listTrips(): Promise<TripSummary[]> {
 
 export async function findBursts(): Promise<Burst[]> {
   return invoke<Burst[]>("find_bursts_cmd");
+}
+
+export async function findBurstsWithBest(): Promise<BurstWithBest[]> {
+  return invoke<BurstWithBest[]>("find_bursts_with_best_cmd");
 }
 
 export async function suggestEventNames(): Promise<SuggestedName[]> {

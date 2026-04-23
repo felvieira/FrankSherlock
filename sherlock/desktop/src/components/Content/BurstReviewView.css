@@ -1,0 +1,53 @@
+.burst-card {
+  margin-bottom: 16px;
+  padding: 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+}
+
+.burst-header {
+  margin-bottom: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.burst-members {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.burst-pick {
+  cursor: pointer;
+  border: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  line-height: 0;
+}
+
+.burst-pick.chosen {
+  border-color: var(--accent);
+}
+
+.burst-pick input {
+  display: none;
+}
+
+.burst-pick img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.burst-pick-placeholder {
+  width: 120px;
+  height: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+}

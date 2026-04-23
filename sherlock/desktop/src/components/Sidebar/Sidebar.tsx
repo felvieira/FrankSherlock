@@ -50,6 +50,7 @@ type SidebarProps = {
   onOpenMap?: () => void;
   onOpenEvents?: () => void;
   onOpenTrips?: () => void;
+  onOpenBursts?: () => void;
   updateInfo?: UpdateInfo | null;
   updateChecking?: boolean;
   updateDownloading?: boolean;
@@ -73,7 +74,7 @@ export default function Sidebar({
   onSelectAlbum, onDeleteAlbum, onSelectSmartFolder, onDeleteSmartFolder,
   onReorderRoots, onReorderAlbums, onReorderSmartFolders, onFindDuplicates,
   onOpenPdfPasswords, onOpenFaces,
-  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules, onOpenMap, onOpenEvents, onOpenTrips,
+  onExportCatalog, onImportCatalog, onGenerateYearReview, onOpenTagRules, onOpenMap, onOpenEvents, onOpenTrips, onOpenBursts,
   updateInfo, updateChecking, updateDownloading, updateProgress,
   onCheckUpdates, onInstallUpdate,
   onTimelineQueryChange,
@@ -230,7 +231,7 @@ export default function Sidebar({
         )}
       </div>
 
-      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenMap || onOpenEvents || onOpenTrips || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
+      {(onFindDuplicates || onGenerateYearReview || onOpenTagRules || onOpenMap || onOpenEvents || onOpenTrips || onOpenBursts || onOpenPdfPasswords || onOpenFaces || onExportCatalog || onImportCatalog || onCheckUpdates) && (
         <div className="sidebar-tools-fixed">
           <div className="sidebar-section"><span>Tools</span></div>
           <div className="sidebar-tool-list">
@@ -312,6 +313,16 @@ export default function Sidebar({
                 title="Browse auto-detected trips (multi-day event clusters)"
               >
                 Trips
+              </button>
+            )}
+            {onOpenBursts && (
+              <button
+                type="button"
+                className="sidebar-tool-btn"
+                onClick={onOpenBursts}
+                title="Review burst shots and keep the AI-picked sharpest one"
+              >
+                Bursts
               </button>
             )}
             {onExportCatalog && (
