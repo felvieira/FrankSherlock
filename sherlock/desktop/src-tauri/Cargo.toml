@@ -1,6 +1,6 @@
 [package]
 name = "sherlock_app"
-version = "0.1.0"
+version = "0.18.0"
 description = "Frank Sherlock desktop application"
 authors = ["AkitaOnRails"]
 license = "GPL-3.0-only"
