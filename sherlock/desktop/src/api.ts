@@ -11,6 +11,7 @@ import type {
   EventSummary,
   FaceDetectProgress,
   FaceInfo,
+  FaceScanJob,
   FileMetadata,
   FileProperties,
   FilterOption,
@@ -74,6 +75,10 @@ export async function getScanJob(jobId: number): Promise<ScanJobStatus | null> {
 
 export async function listActiveScans(): Promise<ScanJobStatus[]> {
   return invoke<ScanJobStatus[]>("list_active_scans");
+}
+
+export async function listFaceScanJobs(): Promise<FaceScanJob[]> {
+  return invoke<FaceScanJob[]>("list_face_scan_jobs_cmd");
 }
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus> {

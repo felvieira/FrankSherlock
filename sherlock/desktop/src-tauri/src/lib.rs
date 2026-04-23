@@ -311,6 +311,13 @@ fn list_active_scans(state: State<'_, AppState>) -> Result<Vec<ScanJobStatus>, S
 }
 
 #[tauri::command]
+fn list_face_scan_jobs_cmd(
+    state: State<'_, AppState>,
+) -> Result<Vec<models::FaceScanJob>, String> {
+    db::face_scan_job_list(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_runtime_status(state: State<'_, AppState>) -> Result<RuntimeStatus, String> {
     let app_state = state.inner().clone();
     Ok(tauri::async_runtime::spawn_blocking(move || {
@@ -1912,6 +1919,7 @@ pub fn run() {
             start_scan,
             get_scan_job,
             list_active_scans,
+            list_face_scan_jobs_cmd,
             get_runtime_status,
             cancel_scan,
             remove_root,

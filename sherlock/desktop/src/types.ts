@@ -70,6 +70,16 @@ export type ScanJobStatus = {
   discoveredFiles: number;
 };
 
+export type FaceScanJob = {
+  rootId: number;
+  processed: number;
+  total: number;
+  facesFound: number;
+  cursorRelPath?: string | null;
+  startedAt: number;
+  updatedAt: number;
+};
+
 export type DbStats = {
   roots: number;
   files: number;
