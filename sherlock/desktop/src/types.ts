@@ -433,6 +433,11 @@ export type Burst = {
   memberIds: number[];
 };
 
+export type SuggestedName = {
+  eventId: number;
+  suggested: string;
+};
+
 /** Dedup policy strategy */
 export type DedupStrategy = "keepLargest" | "keepOldest" | "keepInAlbum";
 

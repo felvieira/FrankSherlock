@@ -29,6 +29,7 @@ import type {
   SmartFolder,
   SubdirEntry,
   Suggestion,
+  SuggestedName,
   SearchRequest,
   SearchResponse,
   SavedSearch,
@@ -378,6 +379,10 @@ export async function listTrips(): Promise<TripSummary[]> {
 
 export async function findBursts(): Promise<Burst[]> {
   return invoke<Burst[]>("find_bursts_cmd");
+}
+
+export async function suggestEventNames(): Promise<SuggestedName[]> {
+  return invoke<SuggestedName[]>("suggest_event_names_cmd");
 }
 
 export async function generateYearReview(year: number): Promise<number> {
