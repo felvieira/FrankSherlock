@@ -124,6 +124,70 @@ fn sanitize_folder_name(s: &str) -> String {
     out.trim().to_string()
 }
 
+// ── Organize plan ─────────────────────────────────────────────────────
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeProposal {
+    pub event_id: i64,
+    pub folder_name: String,
+    pub file_ids: Vec<i64>,
+    pub file_paths: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizePlan {
+    pub base_dir: String,
+    pub proposals: Vec<OrganizeProposal>,
+    pub unassigned_count: i64,
+}
+
+pub fn build_organize_plan(db_path: &Path, base_dir: &str) -> AppResult<OrganizePlan> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        r#"SELECT id, COALESCE(NULLIF(suggested_name, ''), name) FROM events ORDER BY started_at"#,
+    )?;
+    let events: Vec<(i64, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+
+    let mut proposals = Vec::new();
+    let mut assigned_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+
+    for (event_id, folder_name) in events {
+        let mut st = conn.prepare(
+            r#"SELECT f.id, f.abs_path FROM files f
+               JOIN event_files ef ON ef.file_id = f.id
+               WHERE ef.event_id = ?1"#,
+        )?;
+        let rows: Vec<(i64, String)> = st
+            .query_map(params![event_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let file_ids: Vec<i64> = rows.iter().map(|(i, _)| *i).collect();
+        let file_paths: Vec<String> = rows.iter().map(|(_, p)| p.clone()).collect();
+        for id in &file_ids {
+            assigned_ids.insert(*id);
+        }
+        proposals.push(OrganizeProposal {
+            event_id,
+            folder_name,
+            file_ids,
+            file_paths,
+        });
+    }
+
+    let total: i64 = conn.query_row("SELECT COUNT(*) FROM files", [], |r| r.get::<_, i64>(0))?;
+    let unassigned_count = total - assigned_ids.len() as i64;
+
+    Ok(OrganizePlan {
+        base_dir: base_dir.to_string(),
+        proposals,
+        unassigned_count,
+    })
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -131,6 +195,18 @@ pub async fn suggest_event_names_cmd(
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<Vec<SuggestedName>, String> {
     suggest_event_names(&state.paths.db_file).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_organize_plan_cmd(
+    base_dir: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<OrganizePlan, String> {
+    let db = state.paths.db_file.clone();
+    tauri::async_runtime::spawn_blocking(move || build_organize_plan(&db, &base_dir))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -162,4 +238,16 @@ mod tests {
         assert_eq!(sanitize_folder_name("a/b\\c:d*e?f"), "a-b-c-d-e-f");
         assert_eq!(sanitize_folder_name("  2024-07 Paris  "), "2024-07 Paris");
     }
+
+    #[test]
+    fn build_organize_plan_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("t.db");
+        init_database(&db).unwrap();
+        let p = build_organize_plan(&db, "/tmp/out").unwrap();
+        assert_eq!(p.proposals.len(), 0);
+        assert_eq!(p.unassigned_count, 0);
+        assert_eq!(p.base_dir, "/tmp/out");
+    }
+
 }

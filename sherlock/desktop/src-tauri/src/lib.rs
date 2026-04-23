@@ -1948,6 +1948,7 @@ pub fn run() {
             clustering::detect_trips_cmd,
             clustering::list_trips_cmd,
             organize::suggest_event_names_cmd,
+            organize::build_organize_plan_cmd,
             clustering::find_bursts_cmd,
             clustering::generate_year_review_cmd,
             clustering::set_dedup_policy_cmd,
