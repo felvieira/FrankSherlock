@@ -45,6 +45,7 @@ import ExportCatalogModal from "./components/modals/ExportCatalogModal";
 import ImportCatalogModal from "./components/modals/ImportCatalogModal";
 import ConfirmFileDeleteModal from "./components/modals/ConfirmFileDeleteModal";
 import RenameModal from "./components/modals/RenameModal";
+import BatchRenameModal from "./components/modals/BatchRenameModal";
 import HelpModal from "./components/modals/HelpModal";
 import EditMetadataModal from "./components/modals/EditMetadataModal";
 import PropertiesModal from "./components/modals/PropertiesModal";
@@ -94,6 +95,7 @@ export default function App() {
   const [contextMenuMeta, setContextMenuMeta] = useState<{ description: string; extractedText: string } | null>(null);
   const [confirmDeleteFiles, setConfirmDeleteFiles] = useState<SearchItem[] | null>(null);
   const [renameItem, setRenameItem] = useState<SearchItem | null>(null);
+  const [renameIds, setRenameIds] = useState<number[] | null>(null);
   const [showModelInfo, setShowModelInfo] = useState(false);
   const [editMetadataItem, setEditMetadataItem] = useState<SearchItem | null>(null);
   const [facePreviewItems, setFacePreviewItems] = useState<SearchItem[]>([]);
@@ -804,6 +806,12 @@ export default function App() {
           onConfirm={handleRenameFile}
         />
       )}
+      {renameIds && (
+        <BatchRenameModal
+          fileIds={renameIds}
+          onClose={() => setRenameIds(null)}
+        />
+      )}
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}
@@ -822,6 +830,13 @@ export default function App() {
           onProperties={handleContextProperties}
           onFindSimilar={handleContextFindSimilar}
           onFindNearby={handleContextFindNearby}
+          onBatchRename={() => {
+            setContextMenu(null);
+            const ids = [...selectedIndices].sort((a, b) => a - b)
+              .filter(i => i < items.length)
+              .map(i => items[i].id);
+            setRenameIds(ids);
+          }}
           onDelete={handleContextDelete}
           onAddToAlbum={handleAddToAlbum}
           onCreateAlbumFromSelection={handleCreateAlbumFromSelection}

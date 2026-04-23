@@ -469,6 +469,16 @@ export type OrganizeResult = {
   errors: string[];
 };
 
+export type RenameRequest = {
+  fileIds: number[];
+  template: string;
+};
+
+export type RenameResult = {
+  processed: number;
+  errors: string[];
+};
+
 /** Dedup policy strategy */
 export type DedupStrategy = "keepLargest" | "keepOldest" | "keepInAlbum";
 

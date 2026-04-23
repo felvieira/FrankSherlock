@@ -34,6 +34,8 @@ import type {
   OrganizePlan,
   OrganizeRequest,
   OrganizeResult,
+  RenameRequest,
+  RenameResult,
   SearchRequest,
   SearchResponse,
   SavedSearch,
@@ -399,6 +401,10 @@ export async function buildOrganizePlan(baseDir: string): Promise<OrganizePlan> 
 
 export async function executeOrganizePlan(req: OrganizeRequest): Promise<OrganizeResult> {
   return invoke<OrganizeResult>("execute_organize_plan_cmd", { req });
+}
+
+export async function renameByTemplate(req: RenameRequest): Promise<RenameResult> {
+  return invoke<RenameResult>("rename_by_template_cmd", { req });
 }
 
 export async function generateYearReview(year: number): Promise<number> {
