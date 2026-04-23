@@ -526,7 +526,30 @@ export default function FacesView({ onBack, onSelectPerson, onPreviewFile, onNot
             Back to People
           </button>
           <div className="tool-toolbar-stats">
-            <strong>{selectedPerson.name}</strong> &mdash; {faces.length} face
+            {editingId === selectedPerson.id ? (
+              <input
+                ref={inputRef}
+                className="faces-card-name-input"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={() => commitRename(selectedPerson.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename(selectedPerson.id);
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ fontWeight: 600, fontSize: "inherit", width: "160px" }}
+              />
+            ) : (
+              <span
+                style={{ cursor: "pointer", fontWeight: 600 }}
+                title="Click to rename"
+                onClick={() => startRename(selectedPerson)}
+              >
+                {selectedPerson.name}
+              </span>
+            )}
+            {" "}&mdash; {faces.length} face
             {faces.length !== 1 ? "s" : ""}
             {detailSelected.size > 0 && (
               <> &mdash; {detailSelected.size} selected</>
