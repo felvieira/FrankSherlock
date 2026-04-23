@@ -618,6 +618,14 @@ fn thumbnail_only(ctx: &ScanContext, probe: &FileProbe) -> ThumbnailOnlyResult {
         crate::exif::extract_scan_exif(abs)
     };
 
+    // Best-effort: apply EXIF DateTimeOriginal to the file's OS mtime so that
+    // downstream sorts/timeline features reflect when the photo was actually taken.
+    if !is_pdf && !is_vid {
+        if let Some(dt) = crate::exif::extract_date_taken_utc(abs) {
+            let _ = crate::exif::apply_exif_mtime(abs, dt);
+        }
+    }
+
     let (thumb_path, dhash, blur_score, dominant_color, qr_codes) = match thumb_result {
         Some(tr) => (Some(tr.path), tr.dhash, tr.blur_score, tr.dominant_color.map(|c| c as i64), tr.qr_codes),
         None => (None, None, None, None, String::new()),

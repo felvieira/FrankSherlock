@@ -4934,6 +4934,7 @@ dependencies = [
  "chrono",
  "dirs",
  "dunce",
+ "filetime",
  "hex",
  "image",
  "kamadak-exif",
