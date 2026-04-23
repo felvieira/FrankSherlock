@@ -1068,7 +1068,7 @@ fn get_face_stats(
 
 #[tauri::command]
 fn cluster_faces(state: State<'_, AppState>) -> Result<models::ClusterResult, String> {
-    db::cluster_faces(&state.paths.db_file, 0.30).map_err(|e| e.to_string())
+    db::cluster_faces(&state.paths.db_file, 0.50).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1164,7 +1164,7 @@ fn run_recluster(
         });
     }
 
-    let result = db::recluster_faces(db_path, 0.30)?;
+    let result = db::recluster_faces(db_path, 0.50)?;
     log::info!(
         "Re-clustering complete: {} persons, {} faces assigned",
         result.new_persons,
@@ -1470,7 +1470,7 @@ fn run_face_detection(
         // Incremental clustering every 500 files so partial results are usable
         // if the scan is interrupted later.
         if processed > 0 && processed % 500 == 0 && faces_found > 0 {
-            match db::cluster_faces(db_path, 0.30) {
+            match db::cluster_faces(db_path, 0.50) {
                 Ok(result) => {
                     log::info!(
                         "Incremental face clustering at {processed}/{total}: {} new persons, {} faces assigned",
@@ -1495,7 +1495,7 @@ fn run_face_detection(
 
     // Auto-cluster faces into person groups
     if faces_found > 0 {
-        match db::cluster_faces(db_path, 0.30) {
+        match db::cluster_faces(db_path, 0.50) {
             Ok(result) => {
                 log::info!(
                     "Face clustering: {} new persons, {} faces assigned",

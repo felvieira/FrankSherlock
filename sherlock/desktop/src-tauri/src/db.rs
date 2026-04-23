@@ -3032,14 +3032,17 @@ pub fn list_files_needing_face_scan(
            AND f.face_count = 0
            AND f.root_id = ?1
            AND (
-             f.media_type IN ('photo', 'screenshot', 'meme', 'anime', 'illustration')
-             OR LOWER(f.rel_path) LIKE '%.jpg'
-             OR LOWER(f.rel_path) LIKE '%.jpeg'
-             OR LOWER(f.rel_path) LIKE '%.png'
-             OR LOWER(f.rel_path) LIKE '%.webp'
-             OR LOWER(f.rel_path) LIKE '%.bmp'
-             OR LOWER(f.rel_path) LIKE '%.tiff'
-             OR LOWER(f.rel_path) LIKE '%.tif'
+             f.media_type IN ('photo', 'screenshot')
+             OR (
+               f.media_type IS NULL
+               AND (LOWER(f.rel_path) LIKE '%.jpg'
+                    OR LOWER(f.rel_path) LIKE '%.jpeg'
+                    OR LOWER(f.rel_path) LIKE '%.png'
+                    OR LOWER(f.rel_path) LIKE '%.webp'
+                    OR LOWER(f.rel_path) LIKE '%.bmp'
+                    OR LOWER(f.rel_path) LIKE '%.tiff'
+                    OR LOWER(f.rel_path) LIKE '%.tif')
+             )
            )
          ORDER BY f.rel_path";
 
@@ -3541,8 +3544,8 @@ pub fn cluster_faces(db_path: &Path, threshold: f32) -> AppResult<crate::models:
     let conn = open_conn(db_path)?;
     let now = now_epoch_secs();
 
-    const MIN_CONFIDENCE: f32 = 0.65;
-    const MIN_BBOX_DIM: f32 = 40.0;
+    const MIN_CONFIDENCE: f32 = 0.75;
+    const MIN_BBOX_DIM: f32 = 80.0;
 
     // ── Single load: all qualifying face embeddings ──
     // Load once, reference throughout assignment, merge, and outlier phases.
@@ -3696,7 +3699,7 @@ pub fn cluster_faces(db_path: &Path, threshold: f32) -> AppResult<crate::models:
     drop(update_stmt);
 
     // ── Merge pass: count-gated linkage ──
-    let merge_threshold = threshold * 0.85;
+    let merge_threshold = threshold + 0.03;
 
     // Build per-person embedding lists from in-memory data (no re-query)
     struct PersonEmbeddings {
@@ -6681,7 +6684,7 @@ mod tests {
 
     fn insert_test_face(db_path: &std::path::Path, file_id: i64, embedding: &[f32]) -> i64 {
         let face = crate::face::FaceDetection {
-            bbox: [10.0, 10.0, 50.0, 50.0],
+            bbox: [10.0, 10.0, 100.0, 100.0],
             confidence: 0.9,
             keypoints: [[0.0; 2]; 5],
             embedding: embedding.to_vec(),
