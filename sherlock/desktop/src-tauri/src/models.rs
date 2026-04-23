@@ -281,6 +281,18 @@ pub struct ScanJobState {
     pub phase: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FaceScanJob {
+    pub root_id: i64,
+    pub processed: u64,
+    pub total: u64,
+    pub faces_found: u64,
+    pub cursor_rel_path: Option<String>,
+    pub started_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct UnclassifiedFile {
     pub id: i64,

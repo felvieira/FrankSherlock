@@ -7,11 +7,11 @@ use rusqlite_migration::{HookError, Migrations, M};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FileMetadata,
-    FileProperties, FileRecordUpsert, GpsFile, HealthCheckOutcome, NearbyResult, ParsedQuery,
-    PdfPassword, ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch, SavedSearchAlert,
-    ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse, SmartFolder, SortField,
-    SortOrder, SubdirEntry, TagRule,
+    Album, DbStats, DuplicateFile, DuplicateGroup, DuplicatesResponse, ExistingFile, FaceScanJob,
+    FileMetadata, FileProperties, FileRecordUpsert, GpsFile, HealthCheckOutcome, NearbyResult,
+    ParsedQuery, PdfPassword, ProtectedPdfInfo, PurgeResult, RootInfo, SavedSearch,
+    SavedSearchAlert, ScanJobState, ScanJobStatus, SearchItem, SearchRequest, SearchResponse,
+    SmartFolder, SortField, SortOrder, SubdirEntry, TagRule,
 };
 use crate::query_parser::parse_query;
 
@@ -408,6 +408,20 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
         M::up(
             r#"
             ALTER TABLE events ADD COLUMN suggested_name TEXT;
+            "#,
+        ),
+        // Migration 24: resumable face-scan job checkpoint
+        M::up(
+            r#"
+            CREATE TABLE IF NOT EXISTS face_scan_jobs (
+                root_id         INTEGER PRIMARY KEY,
+                processed       INTEGER NOT NULL DEFAULT 0,
+                total           INTEGER NOT NULL DEFAULT 0,
+                faces_found     INTEGER NOT NULL DEFAULT 0,
+                cursor_rel_path TEXT,
+                started_at      INTEGER NOT NULL DEFAULT 0,
+                updated_at      INTEGER NOT NULL DEFAULT 0
+            );
             "#,
         ),
     ]);
@@ -4478,6 +4492,75 @@ pub fn remap_root(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Resumable face-scan checkpointing
+// ---------------------------------------------------------------------------
+
+pub fn face_scan_job_start(db_path: &Path, root_id: i64, total: u64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO face_scan_jobs(root_id, processed, total, faces_found, cursor_rel_path, started_at, updated_at)
+         VALUES (?1, 0, ?2, 0, NULL, ?3, ?3)
+         ON CONFLICT(root_id) DO UPDATE SET
+             total = excluded.total,
+             updated_at = excluded.updated_at",
+        params![root_id, total as i64, now],
+    )?;
+    Ok(())
+}
+
+pub fn face_scan_job_tick(
+    db_path: &Path,
+    root_id: i64,
+    processed: u64,
+    faces_found: u64,
+    cursor_rel_path: Option<&str>,
+) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "UPDATE face_scan_jobs
+         SET processed = ?2, faces_found = ?3, cursor_rel_path = ?4, updated_at = ?5
+         WHERE root_id = ?1",
+        params![root_id, processed as i64, faces_found as i64, cursor_rel_path, now],
+    )?;
+    Ok(())
+}
+
+pub fn face_scan_job_clear(db_path: &Path, root_id: i64) -> AppResult<()> {
+    let conn = open_conn(db_path)?;
+    conn.execute(
+        "DELETE FROM face_scan_jobs WHERE root_id = ?1",
+        params![root_id],
+    )?;
+    Ok(())
+}
+
+pub fn face_scan_job_list(db_path: &Path) -> AppResult<Vec<FaceScanJob>> {
+    let conn = open_conn(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT root_id, processed, total, faces_found, cursor_rel_path, started_at, updated_at
+         FROM face_scan_jobs ORDER BY updated_at DESC",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(FaceScanJob {
+            root_id: r.get(0)?,
+            processed: r.get::<_, i64>(1)? as u64,
+            total: r.get::<_, i64>(2)? as u64,
+            faces_found: r.get::<_, i64>(3)? as u64,
+            cursor_rel_path: r.get(4)?,
+            started_at: r.get(5)?,
+            updated_at: r.get(6)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -5336,11 +5419,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (24 migrations applied → version 24)
+        // Verify user_version is set (25 migrations applied → version 25)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 24);
+        assert_eq!(version, 25);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -5384,8 +5467,47 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 24 migrations (indices 0..23), so user_version should be 24
-        assert_eq!(version, 24);
+        // We have 25 migrations (indices 0..24), so user_version should be 25
+        assert_eq!(version, 25);
+    }
+
+    #[test]
+    fn face_scan_job_roundtrip() {
+        let (_dir, db_path) = test_db_path();
+        init_database(&db_path).expect("init");
+        let root_id = upsert_root(&db_path, "/tmp/facescan").expect("root");
+
+        // Initially empty
+        let jobs = face_scan_job_list(&db_path).expect("list empty");
+        assert!(jobs.is_empty());
+
+        // Start
+        face_scan_job_start(&db_path, root_id, 100).expect("start");
+        let jobs = face_scan_job_list(&db_path).expect("list after start");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].root_id, root_id);
+        assert_eq!(jobs[0].total, 100);
+        assert_eq!(jobs[0].processed, 0);
+        assert_eq!(jobs[0].faces_found, 0);
+        assert!(jobs[0].cursor_rel_path.is_none());
+
+        // Tick
+        face_scan_job_tick(&db_path, root_id, 42, 7, Some("some/path.jpg")).expect("tick");
+        let jobs = face_scan_job_list(&db_path).expect("list after tick");
+        assert_eq!(jobs[0].processed, 42);
+        assert_eq!(jobs[0].faces_found, 7);
+        assert_eq!(jobs[0].cursor_rel_path.as_deref(), Some("some/path.jpg"));
+
+        // Restart (upsert) preserves row but updates total
+        face_scan_job_start(&db_path, root_id, 200).expect("restart");
+        let jobs = face_scan_job_list(&db_path).expect("list after restart");
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].total, 200);
+
+        // Clear
+        face_scan_job_clear(&db_path, root_id).expect("clear");
+        let jobs = face_scan_job_list(&db_path).expect("list after clear");
+        assert!(jobs.is_empty());
     }
 
     #[test]
