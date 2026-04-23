@@ -1350,6 +1350,11 @@ fn run_face_detection(
 
     let total = files.len() as u64;
 
+    // Checkpoint: mark this face scan as started so a crash can be detected.
+    if let Err(e) = db::face_scan_job_start(db_path, root_id, total) {
+        log::warn!("face_scan_job_start failed: {e}");
+    }
+
     // Set initial detecting progress
     {
         let mut progress = progress_arc.lock().expect("face progress mutex poisoned");
@@ -1443,6 +1448,34 @@ fn run_face_detection(
                 phase: "detecting".into(),
             });
         }
+
+        // Checkpoint after each file so an interrupted scan can be detected.
+        if let Err(e) = db::face_scan_job_tick(
+            db_path,
+            root_id,
+            processed,
+            faces_found,
+            Some(&file.rel_path),
+        ) {
+            log::warn!("face_scan_job_tick failed: {e}");
+        }
+
+        // Incremental clustering every 500 files so partial results are usable
+        // if the scan is interrupted later.
+        if processed > 0 && processed % 500 == 0 && faces_found > 0 {
+            match db::cluster_faces(db_path, 0.30) {
+                Ok(result) => {
+                    log::info!(
+                        "Incremental face clustering at {processed}/{total}: {} new persons, {} faces assigned",
+                        result.new_persons,
+                        result.assigned_faces
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Incremental face clustering failed: {e}");
+                }
+            }
+        }
     }
 
     // Clear progress to signal completion
@@ -1467,6 +1500,13 @@ fn run_face_detection(
                 log::warn!("Face clustering failed: {e}");
             }
         }
+    }
+
+    // Clear checkpoint — the scan finished (or was cancelled cleanly after
+    // processing `processed` files; we still clear so it isn't flagged as an
+    // abandoned interrupted scan on next launch).
+    if let Err(e) = db::face_scan_job_clear(db_path, root_id) {
+        log::warn!("face_scan_job_clear failed: {e}");
     }
 
     Ok(())
