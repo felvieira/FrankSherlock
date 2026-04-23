@@ -188,6 +188,129 @@ pub fn build_organize_plan(db_path: &Path, base_dir: &str) -> AppResult<Organize
     })
 }
 
+// ── Organize execute (atomic move/copy with rollback) ─────────────────
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeRequest {
+    pub base_dir: String,
+    pub mode: String, // "copy" or "move"
+    pub proposals: Vec<OrganizeProposalInput>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeProposalInput {
+    pub folder_name: String,
+    pub file_ids: Vec<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizeResult {
+    pub processed: i64,
+    pub skipped: i64,
+    pub errors: Vec<String>,
+}
+
+pub fn execute_organize_plan(db_path: &Path, req: &OrganizeRequest) -> AppResult<OrganizeResult> {
+    use std::fs;
+    let base = std::path::PathBuf::from(&req.base_dir);
+    fs::create_dir_all(&base)?;
+
+    let mut conn = open_conn(db_path)?;
+    let tx = conn.transaction()?;
+    let mut processed = 0i64;
+    let mut skipped = 0i64;
+    let mut errors: Vec<String> = Vec::new();
+    // Track moves so we can roll them back on failure.
+    let mut rollback: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+
+    for p in &req.proposals {
+        let folder = base.join(sanitize_folder(&p.folder_name));
+        fs::create_dir_all(&folder)?;
+        for id in &p.file_ids {
+            let src: String = match tx.query_row(
+                "SELECT abs_path FROM files WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            ) {
+                Ok(s) => s,
+                Err(_) => {
+                    skipped += 1;
+                    continue;
+                }
+            };
+            let src_pb = std::path::PathBuf::from(&src);
+            let fname = match src_pb.file_name() {
+                Some(n) => n.to_os_string(),
+                None => {
+                    skipped += 1;
+                    continue;
+                }
+            };
+            let dst = folder.join(&fname);
+            if dst.exists() {
+                skipped += 1;
+                continue;
+            }
+
+            let r = if req.mode == "copy" {
+                fs::copy(&src_pb, &dst).map(|_| ())
+            } else {
+                fs::rename(&src_pb, &dst)
+            };
+            match r {
+                Ok(()) => {
+                    if req.mode == "move" {
+                        let new_path = dst.to_string_lossy().to_string();
+                        tx.execute(
+                            "UPDATE files SET abs_path = ?1 WHERE id = ?2",
+                            params![new_path, id],
+                        )?;
+                        rollback.push((src_pb, dst.clone()));
+                    }
+                    processed += 1;
+                }
+                Err(e) => errors.push(format!("{}: {}", src, e)),
+            }
+        }
+    }
+
+    if !errors.is_empty() && req.mode == "move" {
+        // Best-effort rollback of any moves already performed.
+        for (orig, moved) in rollback.iter().rev() {
+            let _ = fs::rename(moved, orig);
+        }
+        return Err(crate::error::AppError::Other(format!(
+            "organize failed, rolled back: {}",
+            errors.join("; ")
+        )));
+    }
+
+    tx.commit()?;
+    Ok(OrganizeResult {
+        processed,
+        skipped,
+        errors,
+    })
+}
+
+fn sanitize_folder(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if matches!(
+                c,
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+            ) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -204,6 +327,18 @@ pub async fn build_organize_plan_cmd(
 ) -> Result<OrganizePlan, String> {
     let db = state.paths.db_file.clone();
     tauri::async_runtime::spawn_blocking(move || build_organize_plan(&db, &base_dir))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn execute_organize_plan_cmd(
+    req: OrganizeRequest,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<OrganizeResult, String> {
+    let db = state.paths.db_file.clone();
+    tauri::async_runtime::spawn_blocking(move || execute_organize_plan(&db, &req))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -250,4 +385,25 @@ mod tests {
         assert_eq!(p.base_dir, "/tmp/out");
     }
 
+    #[test]
+    fn sanitize_folder_strips_fs_reserved() {
+        assert_eq!(sanitize_folder("2024-07 Beach/Trip"), "2024-07 Beach_Trip");
+        assert_eq!(sanitize_folder("a:b*c?d"), "a_b_c_d");
+    }
+
+    #[test]
+    fn execute_organize_empty_plan_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("t.db");
+        init_database(&db).unwrap();
+        let req = OrganizeRequest {
+            base_dir: tmp.path().join("out").to_string_lossy().to_string(),
+            mode: "copy".into(),
+            proposals: vec![],
+        };
+        let r = execute_organize_plan(&db, &req).unwrap();
+        assert_eq!(r.processed, 0);
+        assert_eq!(r.skipped, 0);
+        assert!(r.errors.is_empty());
+    }
 }
