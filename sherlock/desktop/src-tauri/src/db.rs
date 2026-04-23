@@ -404,6 +404,12 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
             WHERE gps_lat IS NOT NULL;
             "#,
         ),
+        // Migration 23: AI-suggested event name column
+        M::up(
+            r#"
+            ALTER TABLE events ADD COLUMN suggested_name TEXT;
+            "#,
+        ),
     ]);
 
     migrations
@@ -5302,11 +5308,11 @@ mod tests {
         init_database(&db_path).expect("init");
 
         let conn = open_conn(&db_path).expect("open");
-        // Verify user_version is set (23 migrations applied → version 23)
+        // Verify user_version is set (24 migrations applied → version 24)
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        assert_eq!(version, 23);
+        assert_eq!(version, 24);
 
         // Verify all tables exist
         let tables: Vec<String> = {
@@ -5350,8 +5356,8 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .expect("user_version");
-        // We have 23 migrations (indices 0..22), so user_version should be 23
-        assert_eq!(version, 23);
+        // We have 24 migrations (indices 0..23), so user_version should be 24
+        assert_eq!(version, 24);
     }
 
     #[test]
