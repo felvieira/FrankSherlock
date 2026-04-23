@@ -31,7 +31,7 @@ export type SearchResponse = {
   parsedQuery: ParsedQuery;
 };
 
-export type SortField = "relevance" | "dateModified" | "name" | "type";
+export type SortField = "relevance" | "dateModified" | "dateTaken" | "name" | "type";
 export type SortOrder = "asc" | "desc";
 
 export type SearchRequest = {

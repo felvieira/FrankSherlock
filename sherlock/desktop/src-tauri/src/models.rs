@@ -21,6 +21,7 @@ pub enum SortField {
     Relevance,
     #[default]
     DateModified,
+    DateTaken,
     Name,
     Type,
 }

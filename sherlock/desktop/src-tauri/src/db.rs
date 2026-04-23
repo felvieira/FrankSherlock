@@ -2136,6 +2136,10 @@ fn build_order_clause(has_query: bool, sort_by: &SortField, sort_order: &SortOrd
             format!("f.mtime_ns {dir}")
         }
         SortField::DateModified => format!("f.mtime_ns {dir}"),
+        // With Task 1 in place, EXIF date_taken is applied to OS mtime during scan,
+        // so sorting by "date taken" uses f.mtime_ns. Kept as its own variant for
+        // future schema evolution (dedicated date_taken column).
+        SortField::DateTaken => format!("f.mtime_ns {dir}"),
         SortField::Name => format!("f.filename {dir}"),
         SortField::Type => format!("f.media_type {dir}"),
     };
