@@ -311,6 +311,121 @@ fn sanitize_folder(name: &str) -> String {
         .collect()
 }
 
+// ── Rename by template ────────────────────────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameRequest {
+    pub file_ids: Vec<i64>,
+    pub template: String, // e.g. "{date_taken:%Y-%m-%d}_{event_name}_{counter:03}"
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameResult {
+    pub processed: i64,
+    pub errors: Vec<String>,
+}
+
+pub fn rename_by_template(db_path: &Path, req: &RenameRequest) -> AppResult<RenameResult> {
+    use std::fs;
+    let mut conn = open_conn(db_path)?;
+    let tx = conn.transaction()?;
+    let mut processed = 0i64;
+    let mut errors: Vec<String> = Vec::new();
+
+    for (i, id) in req.file_ids.iter().enumerate() {
+        let (path_str, mtime_ns, event_name): (String, Option<i64>, Option<String>) = match tx
+            .query_row(
+                r#"SELECT f.abs_path, f.mtime_ns,
+                     (SELECT e.suggested_name FROM events e
+                      JOIN event_files ef ON ef.event_id = e.id
+                      WHERE ef.file_id = f.id LIMIT 1)
+                   FROM files f WHERE f.id = ?1"#,
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            ) {
+            Ok(x) => x,
+            Err(_) => {
+                errors.push(format!("id {} not found", id));
+                continue;
+            }
+        };
+
+        let p = std::path::PathBuf::from(&path_str);
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_string();
+        let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+
+        let date_taken = mtime_ns.map(|ns| ns / 1_000_000_000);
+        let new_stem = render_template(&req.template, date_taken, event_name.as_deref(), i);
+        let new_name = if ext.is_empty() {
+            new_stem
+        } else {
+            format!("{}.{}", new_stem, ext)
+        };
+        let new_path = dir.join(&new_name);
+        if new_path == p {
+            continue;
+        }
+
+        match fs::rename(&p, &new_path) {
+            Ok(()) => {
+                tx.execute(
+                    "UPDATE files SET abs_path = ?1 WHERE id = ?2",
+                    params![new_path.to_string_lossy().to_string(), id],
+                )?;
+                processed += 1;
+            }
+            Err(e) => errors.push(format!("{}: {}", path_str, e)),
+        }
+    }
+    tx.commit()?;
+    Ok(RenameResult { processed, errors })
+}
+
+fn render_template(
+    t: &str,
+    date_taken: Option<i64>,
+    event: Option<&str>,
+    counter: usize,
+) -> String {
+    let mut out = t.to_string();
+
+    // {date_taken:FMT}
+    if let Some(ts) = date_taken {
+        if let Some(dt) = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0) {
+            while let Some(start) = out.find("{date_taken:") {
+                if let Some(end) = out[start..].find('}') {
+                    let fmt = &out[start + 12..start + end];
+                    let rendered = dt.format(fmt).to_string();
+                    out.replace_range(start..start + end + 1, &rendered);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    out = out.replace("{event_name}", event.unwrap_or("event"));
+
+    // {counter:03}
+    while let Some(start) = out.find("{counter:") {
+        if let Some(end) = out[start..].find('}') {
+            let pad: usize = out[start + 9..start + end].parse().unwrap_or(0);
+            let rendered = format!("{:0>width$}", counter + 1, width = pad);
+            out.replace_range(start..start + end + 1, &rendered);
+        } else {
+            break;
+        }
+    }
+    out = out.replace("{counter}", &(counter + 1).to_string());
+
+    sanitize_folder(&out)
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -339,6 +454,18 @@ pub async fn execute_organize_plan_cmd(
 ) -> Result<OrganizeResult, String> {
     let db = state.paths.db_file.clone();
     tauri::async_runtime::spawn_blocking(move || execute_organize_plan(&db, &req))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn rename_by_template_cmd(
+    req: RenameRequest,
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<RenameResult, String> {
+    let db = state.paths.db_file.clone();
+    tauri::async_runtime::spawn_blocking(move || rename_by_template(&db, &req))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -389,6 +516,24 @@ mod tests {
     fn sanitize_folder_strips_fs_reserved() {
         assert_eq!(sanitize_folder("2024-07 Beach/Trip"), "2024-07 Beach_Trip");
         assert_eq!(sanitize_folder("a:b*c?d"), "a_b_c_d");
+    }
+
+    #[test]
+    fn render_template_basic() {
+        let dt = Some(1720000000); // 2024-07-03
+        let r = render_template(
+            "{date_taken:%Y-%m-%d}_{event_name}_{counter:03}",
+            dt,
+            Some("Beach"),
+            4,
+        );
+        assert_eq!(r, "2024-07-03_Beach_005");
+    }
+
+    #[test]
+    fn render_template_no_date() {
+        let r = render_template("{event_name}_{counter}", None, None, 0);
+        assert_eq!(r, "event_1");
     }
 
     #[test]
